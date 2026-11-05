@@ -1,0 +1,85 @@
+@startuml
+!pragma layout smetana
+left to right direction
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam nodesep 35
+skinparam ranksep 45
+skinparam packageStyle rectangle
+skinparam padding 12
+title BrewLite AS2 Deployment Draft\nPlatform pending TV6 review\n
+
+node "Customer device" as customer {
+  artifact "Browser / Next.js UI\nMobile-first / PWA target" as browser
+}
+
+package "LOCAL — proposed Compose topology\nNot yet implemented in brew-lite2" as local {
+  node "Developer host" as dev {
+    node "Web container" as localWeb {
+      artifact "Next.js\napps/web (planned)" as localUI
+    }
+    node "API container" as localApi {
+      artifact "NestJS + payment mock\napps/api (planned)" as localApp
+    }
+    database "PostgreSQL\nDevelopment data" as localDB
+    storage "Persistent dev volume" as localDisk
+  }
+}
+
+package "CI — proposed, workflow pending TV6" as ci {
+  cloud "GitHub repository\nbrew-lite2" as repo
+  node "GitHub Actions runner" as runner {
+    artifact "Install / Lint / Test / Build\nImage build and smoke orchestration" as pipeline
+    database "Ephemeral test PostgreSQL\nSeparate from production" as testDB
+  }
+  cloud "Container registry\nProvider TBD" as registry
+}
+
+package "PRODUCTION — design target only\nProvider, region and domain TBD" as prod {
+  node "HTTPS ingress\nTLS termination / CDN role TBD" as ingress
+  node "Web workload" as prodWeb {
+    artifact "Next.js container\napps/web (planned)" as prodUI
+  }
+  node "API workload" as prodApi {
+    artifact "NestJS + payment mock\napps/api (planned)" as prodApp
+  }
+  package "Private data network" as privateNet {
+    database "PostgreSQL\nManaged or container: TBD" as prodDB
+    storage "Persistent storage\nBackup / restore policy TBD" as prodDisk
+  }
+  node "One-off migration job\nRelease-controlled" as migration
+  cloud "Platform secret store\nDATABASE_URL / JWT_SECRET\nNo secrets in images or Git" as secrets
+  node "Health / log facilities\nProvider and retention TBD" as observability
+}
+
+browser --> localUI : Local HTTP
+browser --> localApp : Local API HTTP
+localApp --> localDB : Private Compose network / SQL
+localDB --> localDisk : Persist
+repo --> pipeline : PR checks / release trigger
+pipeline --> testDB : Integration tests
+pipeline --> registry : Push immutable image tag/digest
+registry --> prodUI : Deploy web image
+registry --> prodApp : Deploy API image
+pipeline --> migration : Authorized release step
+pipeline --> ingress : HTTPS smoke after deploy
+browser --> ingress : HTTPS web and API
+ingress --> prodUI : Web routing
+ingress --> prodApp : API routing
+prodApp --> prodDB : Private DB connection
+migration --> prodDB : Apply versioned migrations
+prodDB --> prodDisk : Persist / backup
+secrets --> prodApp : Runtime configuration
+secrets --> migration : Scoped DB credentials
+prodApp --> observability : Sanitized logs
+observability --> prodApp : GET /health (DB probe)
+observability --> prodUI : HTTP readiness probe (TBD)
+
+legend bottom
+  All workloads and deployment connections are proposed design, not live infrastructure.
+  Payment mock is inside the API workload; no external payment provider is deployed.
+  Production DB has no public client route. Local published DB ports, if any, bind loopback.
+  CI uses test data; migrations and backups require a reviewed release procedure.
+  Container-to-code mapping remains planned until apps/web and apps/api exist.
+endlegend
+@enduml
