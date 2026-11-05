@@ -1,0 +1,84 @@
+@startuml
+skinparam style strictuml
+skinparam classAttributeIconSize 0
+skinparam nodesep 60
+skinparam ranksep 60
+
+title Class Diagram: BrewLite Domain Model
+
+package "Enums" {
+  enum OrderStatus {
+    PENDING
+    PAID
+    PREPARING
+    READY
+    COMPLETED
+    PAYMENT_FAILED
+    CANCELLED
+  }
+
+  enum PaymentStatus {
+    PENDING
+    SUCCESS
+    FAILED
+  }
+}
+
+class User {
+  - id: UUID
+  - email: String
+  - passwordHash: String
+  - fullName: String
+}
+
+class Product {
+  - id: UUID
+  - name: String
+  - basePrice: Decimal
+  - stock: Int
+}
+
+class Order {
+  - id: UUID
+  - totalAmount: Decimal
+  - status: OrderStatus
+  - idempotencyKey: String
+  - createdAt: DateTime
+}
+
+class OrderItem {
+  - id: UUID
+  - quantity: Int
+  - unitPrice: Decimal
+  - size: String
+  - toppings: String
+}
+
+class Payment {
+  - id: UUID
+  - method: String
+  - amount: Decimal
+  - status: PaymentStatus
+}
+
+class Promotion {
+  - id: UUID
+  - code: String
+  - discountPercent: Int
+}
+
+class LoyaltyTransaction {
+  - id: UUID
+  - points: Int
+  - type: String
+}
+
+' Giữ nguyên mối quan hệ tự động (--) để nó tự sắp xếp mạng nhện cho đẹp
+User "1" -- "0..*" Order : places >
+Order "1" *-- "1..*" OrderItem : contains >
+Product "1" -- "0..*" OrderItem : included in >
+Order "1" -- "0..1" Payment : pays >
+Order "0..*" -- "0..1" Promotion : applies >
+User "1" -- "0..*" LoyaltyTransaction : earns >
+
+@enduml

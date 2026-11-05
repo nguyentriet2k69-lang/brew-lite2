@@ -1,0 +1,53 @@
+@startuml
+' Cấu hình để sơ đồ trắng đen chuẩn UML, không bị màu mè rối mắt
+skinparam style strictuml
+skinparam defaultFontName Arial
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityBorderColor #000000
+skinparam ArrowColor #000000
+
+title Activity Diagram: Luồng Đặt và Thanh toán đơn hàng (UC-05)
+
+|Customer|
+start
+:Nhấn "Thanh toán" tại Giỏ hàng;
+
+|Next.js UI|
+if (Đã đăng nhập chưa?) then ([Chưa])
+  :Chuyển hướng sang trang Login;
+  stop
+else ([Đã đăng nhập])
+  :Sinh Idempotency-Key\nvà gọi API tạo đơn;
+endif
+
+|NestJS API|
+:Kiểm tra JWT & Validate dữ liệu;
+if (Sản phẩm còn đủ tồn kho?) then ([Không đủ])
+  |Next.js UI|
+  :Hiển thị lỗi "Hết hàng"\ngiữ nguyên giỏ hàng;
+  stop
+else ([Đủ tồn kho])
+  |Database|
+  :Mở Transaction:\nTạo Order (PENDING)\nvà trừ tồn kho;
+  :Commit Transaction;
+  
+  |NestJS API|
+  :Gọi Cổng thanh toán (Mock);
+  
+  |Payment Service|
+  :Xử lý giao dịch;
+  if (Thanh toán thành công?) then ([Thất bại])
+    |NestJS API|
+    :Cập nhật Order = PAYMENT_FAILED;
+    |Next.js UI|
+    :Báo lỗi, giữ giỏ hàng,\ncho phép thử lại;
+    stop
+  else ([Thành công])
+    |NestJS API|
+    :Lưu Payment & Cập nhật Order = PAID;
+    |Next.js UI|
+    :Hiển thị xác nhận,\nlàm trống giỏ hàng;
+    stop
+  endif
+endif
+@enduml
