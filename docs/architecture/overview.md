@@ -1,6 +1,6 @@
 # Kiến trúc BrewLite
 
-Trạng thái: Bản nháp thiết kế Task 3.1, phụ trách TV3. Căn cứ: SRS và UML Task 1–2 trong repository. Repository hiện có tài liệu; các đường dẫn `apps/web`, `apps/api` và cấu hình triển khai dưới đây là mục tiêu thiết kế, chưa phải bằng chứng đã triển khai.
+Trạng thái: Thiết kế Task 3.1 do TV3 bàn giao để review và hiện thực Task 4–5. Căn cứ: SRS và UML Task 1–2 trong repository. Repository hiện có tài liệu; các đường dẫn `apps/web`, `apps/api` và cấu hình triển khai dưới đây là mục tiêu thiết kế, chưa phải bằng chứng đã triển khai.
 
 ## 1. Mục tiêu và phạm vi
 
@@ -68,6 +68,6 @@ Không coi hai request HTTP tạo đơn và thanh toán là một transaction DB
 | UC-05 yêu cầu thử lại payment nhưng Class có Order–Payment `0..1` | TV2/TV5: một payment cập nhật kết quả hay nhiều lần thử được lưu riêng |
 | Sequence mô tả payment fail trả 400, chưa có contract response thống nhất | TV1/TV2/TV5: phân biệt kết quả nghiệp vụ thất bại với request không hợp lệ |
 | Activity kiểm tra tồn kho trước transaction, Sequence kiểm tra trong transaction | TV2/TV5: bảo đảm kiểm tra và giảm tồn kho nguyên tử |
-| Platform, domain, registry, TLS, backup, log và rollback chưa được chọn | TV6 cùng TV3: hoàn thiện ADR-005 và deployment diagram |
+| TV3 chọn Render web/API/Postgres, HTTPS được quản lý và GHCR; Compose dùng local | TV6 hiện thực ADR-005, tắt DB external access, chọn plan theo quota/ngày chấm và cung cấp minh chứng Task 4–5 |
 
 TV3 ghi nhận các điểm này, không thay đổi SRS/UML của TV1/TV2. Các tài liệu liên quan: [Sequence](../diagrams/sequence-checkout.puml), [Class](../diagrams/class-domain.puml), [Activity](../diagrams/activity-order-to-payment.puml), [Deployment nháp](../diagrams/deployment.svg), [Thiết kế triển khai](../deployment.md).

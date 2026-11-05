@@ -1,85 +1,80 @@
 @startuml
-!pragma layout smetana
 left to right direction
 skinparam shadowing false
 skinparam defaultFontName Arial
-skinparam nodesep 35
-skinparam ranksep 45
 skinparam packageStyle rectangle
-skinparam padding 12
-title BrewLite AS2 Deployment Draft\nPlatform pending TV6 review\n
+skinparam nodesep 40
+skinparam ranksep 50
+title BrewLite AS2 — Target deployment on Render\nTV3 design for TV6 implementation
+actor "Customer browser\nMobile / PWA" as customer
 
-node "Customer device" as customer {
-  artifact "Browser / Next.js UI\nMobile-first / PWA target" as browser
+package "LOCAL — Docker Compose" {
+  node "Developer machine" {
+    artifact "web: Next.js :3000\napps/web (planned)" as lw
+    artifact "api: NestJS :3001\napps/api (planned)" as la
+    database "Local PostgreSQL\nSeparate dev data" as ld
+    storage "Local DB volume" as lv
+  }
+  lw --> la : HTTP API
+  la --> ld : SQL / Compose network
+  ld --> lv : Persist
 }
 
-package "LOCAL — proposed Compose topology\nNot yet implemented in brew-lite2" as local {
-  node "Developer host" as dev {
-    node "Web container" as localWeb {
-      artifact "Next.js\napps/web (planned)" as localUI
-    }
-    node "API container" as localApi {
-      artifact "NestJS + payment mock\napps/api (planned)" as localApp
-    }
-    database "PostgreSQL\nDevelopment data" as localDB
-    storage "Persistent dev volume" as localDisk
+package "CI/CD — GitHub" {
+  cloud "Repository brew-lite2" as repo
+  node "GitHub Actions" {
+    artifact "Install / Lint / Test / Build\nlinux/amd64 image build\nSequential deploy + smoke" as ci
+    database "Ephemeral PostgreSQL\nTest data only" as testdb
   }
+  cloud "GHCR\nbrew-lite2-web / brew-lite2-api\nCommit SHA tag + digest" as registry
+  artifact "GitHub Environment secrets\nRender hooks / API token" as ghsecrets
 }
 
-package "CI — proposed, workflow pending TV6" as ci {
-  cloud "GitHub repository\nbrew-lite2" as repo
-  node "GitHub Actions runner" as runner {
-    artifact "Install / Lint / Test / Build\nImage build and smoke orchestration" as pipeline
-    database "Ephemeral test PostgreSQL\nSeparate from production" as testDB
+package "RENDER — same workspace / region\nPlan and service URLs provisioned by TV6" {
+  cloud "Render HTTPS ingress\nManaged TLS / onrender.com URLs" as tls
+  node "Web Service: web\nImage-backed" {
+    artifact "Next.js container\napps/web (planned)" as web
   }
-  cloud "Container registry\nProvider TBD" as registry
+  node "Web Service: api\nImage-backed" {
+    artifact "NestJS + payment mock\napps/api (planned)\nBind 0.0.0.0 / PORT" as api
+    artifact "Versioned migration\nBefore API readiness\nStartup on Free; pre-deploy if supported" as migrate
+  }
+  package "Database access boundary" {
+    database "Render Postgres\nInternal URL from API\nExternal access disabled" as db
+    storage "Render-managed persistent data" as disk
+  }
+  artifact "Render environment secrets\nDATABASE_URL / JWT_SECRET" as secrets
+  node "Render health checks / logs\nAPI /health checks DB" as health
 }
 
-package "PRODUCTION — design target only\nProvider, region and domain TBD" as prod {
-  node "HTTPS ingress\nTLS termination / CDN role TBD" as ingress
-  node "Web workload" as prodWeb {
-    artifact "Next.js container\napps/web (planned)" as prodUI
-  }
-  node "API workload" as prodApi {
-    artifact "NestJS + payment mock\napps/api (planned)" as prodApp
-  }
-  package "Private data network" as privateNet {
-    database "PostgreSQL\nManaged or container: TBD" as prodDB
-    storage "Persistent storage\nBackup / restore policy TBD" as prodDisk
-  }
-  node "One-off migration job\nRelease-controlled" as migration
-  cloud "Platform secret store\nDATABASE_URL / JWT_SECRET\nNo secrets in images or Git" as secrets
-  node "Health / log facilities\nProvider and retention TBD" as observability
-}
+cloud "Protected DB export storage\nExport before risky migration / handoff\nRestore tested by TV5/TV6" as backup
 
-browser --> localUI : Local HTTP
-browser --> localApp : Local API HTTP
-localApp --> localDB : Private Compose network / SQL
-localDB --> localDisk : Persist
-repo --> pipeline : PR checks / release trigger
-pipeline --> testDB : Integration tests
-pipeline --> registry : Push immutable image tag/digest
-registry --> prodUI : Deploy web image
-registry --> prodApp : Deploy API image
-pipeline --> migration : Authorized release step
-pipeline --> ingress : HTTPS smoke after deploy
-browser --> ingress : HTTPS web and API
-ingress --> prodUI : Web routing
-ingress --> prodApp : API routing
-prodApp --> prodDB : Private DB connection
-migration --> prodDB : Apply versioned migrations
-prodDB --> prodDisk : Persist / backup
-secrets --> prodApp : Runtime configuration
-secrets --> migration : Scoped DB credentials
-prodApp --> observability : Sanitized logs
-observability --> prodApp : GET /health (DB probe)
-observability --> prodUI : HTTP readiness probe (TBD)
+customer --> lw : Local HTTP
+customer --> tls : HTTPS web and API
+tls --> web : Web URL
+tls --> api : API URL
+web --> tls : API HTTPS when SSR calls API
+api --> db : Internal SQL connection
+migrate --> db : Versioned migrations
+db --> disk : Persist
+api --> backup : Controlled export mode\nInternal DB access / no secrets in logs
+secrets --> api : Runtime configuration
+ghsecrets --> ci : Authorized deploy
+repo --> ci : PR checks / main or release tag
+ci --> testdb : Integration / E2E
+ci --> registry : Publish checked images
+registry --> web : Render pulls selected digest
+registry --> api : Render pulls selected digest
+ci --> tls : Deploy hooks via HTTPS\nWait for deploy status, then smoke
+api --> health : Sanitized service logs
+health --> api : GET /health
+health --> web : HTTP probe
 
 legend bottom
-  All workloads and deployment connections are proposed design, not live infrastructure.
-  Payment mock is inside the API workload; no external payment provider is deployed.
-  Production DB has no public client route. Local published DB ports, if any, bind loopback.
-  CI uses test data; migrations and backups require a reviewed release procedure.
-  Container-to-code mapping remains planned until apps/web and apps/api exist.
+  Target architecture, not evidence of live services. Docker Compose is local only.
+  No VPS, Caddy or external payment service. No browser/web/CI database credentials.
+  Free: cold start, shared hour quota, Postgres expires in 30 days, no managed backup.
+  No Free one-off jobs/shell: migration/export requires reviewed runtime implementation.
+  A successful deploy-hook response is not a completed rollout; poll status and smoke.
 endlegend
 @enduml
