@@ -5,76 +5,71 @@ skinparam defaultFontName Arial
 skinparam packageStyle rectangle
 skinparam nodesep 40
 skinparam ranksep 50
-title BrewLite AS2 — Target deployment on Render\nTV3 design for TV6 implementation
+title BrewLite — Deployment on Ubuntu Server
 actor "Customer browser\nMobile / PWA" as customer
-
 package "LOCAL — Docker Compose" {
   node "Developer machine" {
-    artifact "web: Next.js :3000\napps/web (planned)" as lw
-    artifact "api: NestJS :3001\napps/api (planned)" as la
-    database "Local PostgreSQL\nSeparate dev data" as ld
-    storage "Local DB volume" as lv
+    artifact "web :3000\napps/web (planned)" as lw
+    artifact "api :3001\napps/api (planned)" as la
+    database "Development PostgreSQL" as ld
+    storage "Dev DB volume" as lv
   }
-  lw --> la : HTTP API
-  la --> ld : SQL / Compose network
+  lw --> la : HTTP
+  la --> ld : SQL
   ld --> lv : Persist
 }
-
 package "CI/CD — GitHub" {
   cloud "Repository brew-lite2" as repo
   node "GitHub Actions" {
-    artifact "Install / Lint / Test / Build\nlinux/amd64 image build\nSequential deploy + smoke" as ci
-    database "Ephemeral PostgreSQL\nTest data only" as testdb
+    artifact "Install / Lint / Test / Build\nImage build / deploy / smoke" as ci
+    database "Isolated test PostgreSQL" as testdb
   }
   cloud "GHCR\nbrew-lite2-web / brew-lite2-api\nCommit SHA tag + digest" as registry
-  artifact "GitHub Environment secrets\nRender hooks / API token" as ghsecrets
+  artifact "GitHub Environment secrets\nSSH key / verified host fingerprint" as ghsecrets
 }
-
-package "RENDER — same workspace / region\nPlan and service URLs provisioned by TV6" {
-  cloud "Render HTTPS ingress\nManaged TLS / onrender.com URLs" as tls
-  node "Web Service: web\nImage-backed" {
-    artifact "Next.js container\napps/web (planned)" as web
+node "Ubuntu 24.04 LTS server\nDocker Engine + Compose v2\nSchool-provided, existing host or VPS" as server {
+  node "edge network" {
+    node "proxy: Caddy 2\nPublic TCP 80/443\nWEB_DOMAIN / API_DOMAIN" as proxy
+    artifact "web: Next.js :3000\napps/web (planned)" as web
+    artifact "api: NestJS :3001\napps/api (planned)\nIncludes payment mock\nAlso joins data network" as api
   }
-  node "Web Service: api\nImage-backed" {
-    artifact "NestJS + payment mock\napps/api (planned)\nBind 0.0.0.0 / PORT" as api
-    artifact "Versioned migration\nBefore API readiness\nStartup on Free; pre-deploy if supported" as migrate
+  package "data network — internal: true\nAPI + DB + migrate" {
+    database "db: PostgreSQL 16 :5432\nNo host port publishing" as db
+    artifact "migrate: API image\nOne-off before rollout" as migrate
+    storage "postgres_data" as disk
   }
-  package "Database access boundary" {
-    database "Render Postgres\nInternal URL from API\nExternal access disabled" as db
-    storage "Render-managed persistent data" as disk
-  }
-  artifact "Render environment secrets\nDATABASE_URL / JWT_SECRET" as secrets
-  node "Render health checks / logs\nAPI /health checks DB" as health
+  artifact "Runtime secrets outside Git\nDATABASE_URL / JWT_SECRET\nRestricted files" as secrets
+  storage "caddy_data / caddy_config" as certs
+  node "Docker healthchecks / rotated logs\nAPI /health probes DB" as health
 }
-
-cloud "Protected DB export storage\nExport before risky migration / handoff\nRestore tested by TV5/TV6" as backup
-
+cloud "Protected off-server DB dump\nVerify restore before handover" as backup
 customer --> lw : Local HTTP
-customer --> tls : HTTPS web and API
-tls --> web : Web URL
-tls --> api : API URL
-web --> tls : API HTTPS when SSR calls API
-api --> db : Internal SQL connection
-migrate --> db : Versioned migrations
+customer --> proxy : HTTPS web/API
+proxy --> web : HTTP web:3000
+proxy --> api : HTTP api:3001
+web --> api : Internal HTTP when SSR
+api --> db : Internal SQL / data network
+migrate --> db : Versioned migration
 db --> disk : Persist
-api --> backup : Controlled export mode\nInternal DB access / no secrets in logs
+proxy --> certs : Persist TLS state
 secrets --> api : Runtime configuration
+secrets --> db : DB password
+secrets --> migrate : DB credentials
+repo --> ci : PR / main / release tag
 ghsecrets --> ci : Authorized deploy
-repo --> ci : PR checks / main or release tag
 ci --> testdb : Integration / E2E
 ci --> registry : Publish checked images
-registry --> web : Render pulls selected digest
-registry --> api : Render pulls selected digest
-ci --> tls : Deploy hooks via HTTPS\nWait for deploy status, then smoke
-api --> health : Sanitized service logs
+server --> registry : Pull release images
+ci --> server : SSH deploy / migration first
+ci --> proxy : HTTPS smoke after health
+db --> backup : Controlled dump via server task
 health --> api : GET /health
 health --> web : HTTP probe
-
+api --> health : Sanitized logs
 legend bottom
-  Target architecture, not evidence of live services. Docker Compose is local only.
-  No VPS, Caddy or external payment service. No browser/web/CI database credentials.
-  Free: cold start, shared hour quota, Postgres expires in 30 days, no managed backup.
-  No Free one-off jobs/shell: migration/export requires reviewed runtime implementation.
-  A successful deploy-hook response is not a completed rollout; poll status and smoke.
+  Deployment design; record actual server IP and hostnames during setup.
+  Only proxy has public application ports. DB remains internal.
+  Single Ubuntu server; no high-availability claim.
+  Payment mock is inside API. Compose is used locally and on server.
 endlegend
 @enduml

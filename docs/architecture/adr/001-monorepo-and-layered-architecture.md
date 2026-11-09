@@ -1,6 +1,6 @@
 # ADR 001 Monorepo và backend phân lớp
 
-Trạng thái: Đề xuất. Chủ trì TV3; review TV4, TV5, TV6.
+Trạng thái: Đề xuất thiết kế.
 
 ## Bối cảnh
 
@@ -12,10 +12,10 @@ Monorepo giúp thay đổi contract và tài liệu trong cùng PR. Nhiều repo
 
 ## Quyết định đề xuất
 
-Dùng monorepo `apps/web`, `apps/api`, `docs`; backend modular monolith, phân lớp HTTP → service → persistence. Web và API có thể build và triển khai riêng. TV6 quyết định workspace/package manager khi setup repo.
+Dùng monorepo `apps/web`, `apps/api`, `docs`; backend modular monolith, phân lớp HTTP → service → persistence. Web và API có thể build và triển khai riêng. Workspace và package manager được thống nhất khi thiết lập repository.
 
 ## Hệ quả và kiểm chứng
 
-Giảm công phối hợp nhưng cần tránh module phụ thuộc vòng và chia sẻ tùy tiện chi tiết DB với UI. TV4/TV5 ánh xạ module vào code; TV6 cung cấp CI cho hai ứng dụng. Chưa có code để nghiệm thu quyết định này.
+Giảm công phối hợp nhưng cần tránh module phụ thuộc vòng và chia sẻ tùy tiện chi tiết DB với UI. Khi hiện thực, các module cần giữ đúng ranh giới trách nhiệm; CI kiểm tra cả hai ứng dụng.
 
 Tham chiếu: [overview](../overview.md), NFR-04 và NFR-07 trong [SRS](../../requirements/srs.md).

@@ -1,46 +1,25 @@
-# ADR 005 Triển khai đồ án trên Render
+# ADR 005 Triển khai trên server Ubuntu
 
-Trạng thái: Thiết kế TV3 để review và bàn giao Task 4–5. Chọn Render; chưa cấp dịch vụ hay chọn gói trả phí.
+Trạng thái: Chọn server Ubuntu theo yêu cầu của giảng viên.
 
-## Bối cảnh và lựa chọn
+## Bối cảnh
 
-Đồ án yêu cầu Next.js, NestJS, PostgreSQL, Docker local, CI/CD qua image/registry và URL HTTPS. TV3 thiết kế trước, TV6 hiện thực sau.
+BrewLite phải triển khai trên server Ubuntu, cung cấp web/API qua HTTPS và giữ database không public. Server có thể do trường cấp, nhóm có sẵn hoặc thuê VPS; thiết kế không bắt buộc mua VPS.
 
-| Phương án | Lợi ích | Đánh đổi |
-|---|---|---|
-| Render web/API/Postgres | Cùng dashboard, TLS được quản lý, API–DB có đường nội bộ | Free có cold start, quota và DB hết hạn; tính năng phụ thuộc gói |
-| Railway web/API/Postgres | Tập trung dịch vụ, cấu hình thuận tiện | Chi phí theo sử dụng; trial không bảo đảm kéo dài tới nghiệm thu |
-| VPS + Compose | Kiểm soát toàn bộ runtime/mạng | Nhóm tự quản hệ điều hành, reverse proxy, TLS, storage và backup |
+## Quyết định
 
-Chọn Render để giảm việc quản trị máy chủ cho đồ án. Không yêu cầu VPS Ubuntu, Caddy, SSH deploy hay mua domain riêng. Docker Compose dùng để tái tạo môi trường local; production không chạy nguyên Compose mà tách thành các dịch vụ Render.
+- Server Ubuntu 24.04 LTS chạy Docker Engine và Docker Compose v2.
+- Bốn service: Caddy 2 (`proxy`), Next.js (`web:3000`), NestJS/payment mock (`api:3001`), PostgreSQL 16 (`db:5432`).
+- Caddy publish TCP 80/443, quản lý TLS và route hai hostname web/API. Hostname cần có DNS trỏ về server và truy cập được từ môi trường nghiệm thu.
+- Network `edge` có proxy/web/api; `data` đặt `internal: true` có api/db và migration job. Không publish cổng web/API/DB ở production.
+- PostgreSQL dùng volume `postgres_data`; Caddy dùng `caddy_data` và `caddy_config`. Secrets nằm ngoài Git trên server.
+- GitHub Actions chạy kiểm tra, build image và push GHCR với SHA tag/digest; deploy tới Ubuntu qua SSH bằng tài khoản được giới hạn. Giữ image release cũ để rollback.
+- Migration one-off bằng image API mới, phải thành công trước khi cập nhật app. Health/smoke kiểm tra sau deploy; lỗi thì dừng và phục hồi release tương thích.
 
-## Quyết định thiết kế
+## Bàn giao và kiểm chứng
 
-- Một Render Web Service cho Next.js và một Render Web Service cho NestJS/payment mock, nguồn là Docker image từ GHCR.
-- Một Render Postgres cùng workspace/region với API; API dùng internal database URL. Tắt hoàn toàn external access bằng IP allow list rỗng. Chỉ có mật khẩu là chưa đủ để coi DB không public.
-- Dùng URL HTTPS `onrender.com` do Render cấp cho web/API, TLS do nền tảng quản lý; không cần thêm Caddy/CDN riêng.
-- Image GHCR `brew-lite2-web` và `brew-lite2-api`, tag theo commit SHA, lưu digest cặp image. Build `linux/amd64`; giữ image cũ để rollback.
-- GitHub Actions thực hiện kiểm tra và push GHCR, sau đó trigger deploy hook với `imgURL` trỏ đúng tag/digest đã kiểm tra. Đợi trạng thái deploy hoàn tất rồi smoke; HTTP 200 từ deploy hook chỉ có nghĩa đã khởi động deploy.
-- Secrets app lưu trong Render environment; hook/API token ở GitHub Environment secrets; quyền publish GHCR và quyền pull image riêng theo nhu cầu. Không commit credential.
-- API bind `0.0.0.0` và dùng `PORT` do Render cấp. Browser gọi API public qua HTTPS; CORS chỉ cho web URL.
-- Migration chạy trong Render bằng kết nối DB nội bộ, không mở DB cho GitHub runner. Gói có pre-deploy command dùng migration trước deploy; Free dùng startup migration có chặn lỗi, một instance và release tuần tự. Chi tiết và giới hạn tại deployment.md.
+Khi triển khai cần bổ sung IP/hostname, Compose/Dockerfile, CI/CD và script migration/seed theo thiết kế này. Kiểm tra HTTPS, healthcheck và rollback để xác nhận hệ thống hoạt động.
 
-## Giới hạn gói và điều kiện nghiệm thu
-
-Theo tài liệu Render được kiểm tra ngày 06/11/2026:
-- Free web ngủ sau 15 phút không có traffic, khởi động lại có thể khoảng một phút; không coi lần cold start là bằng chứng đạt NFR hiệu năng.
-- Workspace có 750 free instance hours/tháng dùng chung; hai web service có thể vượt nếu đều chạy liên tục.
-- Free Postgres hết hạn sau 30 ngày và không có managed backup. Free web không có one-off jobs hoặc shell.
-- Chưa chọn Free hay paid khi chưa biết ngày chấm/ngân sách. TV6 kiểm tra quota và thời hạn DB trước cấp phát, chọn phương án phù hợp; không mặc định Free đáp ứng uptime/performance tới ngày nghiệm thu.
-- Export DB mẫu trước bàn giao bằng tác vụ trong Render dùng internal URL, lưu an toàn để phục hồi; không tuyên bố có PITR ở Free. Có migration/seed để tái tạo dữ liệu mẫu, nhưng seed không thay thế backup dữ liệu phát sinh.
-
-Các URL/service ID/region và plan được TV6 ghi khi triển khai. Task 3 bàn giao topology và contract, không cần chờ URL live. Nếu plan không đáp ứng cần thiết, review lại trước cấp dịch vụ.
-
-## Nguồn
-
-- [Render image deployment](https://render.com/docs/deploying-an-image)
-- [Deploy hooks và imgURL](https://render.com/docs/deploy-hooks)
-- [Postgres internal URL và external access](https://render.com/docs/postgresql-creating-connecting)
-- [Free limitations](https://render.com/docs/free)
+Giải pháp Compose đơn giản, phù hợp đồ án; một server có thể gián đoạn khi lỗi hoặc deploy. Nhóm chịu trách nhiệm giữ dữ liệu và kiểm tra khôi phục, không cam kết HA.
 
 Tham chiếu: [deployment](../../deployment.md), [SRS](../../requirements/srs.md).

@@ -1,85 +1,70 @@
-# Thiết kế triển khai BrewLite trên Render
+# Thiết kế triển khai BrewLite trên server Ubuntu
 
-Task 3.2 — TV3. Kiến trúc mục tiêu để TV6 hiện thực Task 4–5 theo [ADR-005](architecture/adr/005-deployment-platform.md). Đây là tài liệu thiết kế, chưa phải minh chứng hệ thống đã chạy.
+BrewLite được thiết kế để triển khai trên server Ubuntu theo yêu cầu của giảng viên. Tài liệu mô tả các thành phần, kết nối và quy trình triển khai; IP, hostname và lệnh chạy cụ thể được bổ sung khi cấu hình server.
 
-## 1. Môi trường và thành phần
+## 1. Môi trường và ánh xạ thành phần
 
-| Môi trường | Thành phần và mục đích |
+| Môi trường | Thiết kế |
 |---|---|
-| Local | Docker Compose web/api/db; web localhost:3000, API localhost:3001; DB nếu publish chỉ 127.0.0.1:5433 |
-| CI | GitHub Actions chạy lint/unit/build và DB test riêng cho integration/E2E; không dùng DB production |
-| Demo/production đồ án | Hai Render Web Services image-backed (Next.js, NestJS) và Render Postgres; TLS do Render quản lý |
+| Local | Docker Compose: web localhost:3000, API localhost:3001; DB nếu cần publish chỉ 127.0.0.1:5433 |
+| CI | GitHub Actions; PostgreSQL test riêng cho integration/E2E |
+| Server | Ubuntu 24.04 LTS, Docker Engine, Compose v2; web/API có HTTPS, DB nội bộ |
 
-| Workload | Nguồn code dự kiến | Vị trí chạy |
+| Service | Code/image dự kiến | Kết nối |
 |---|---|---|
-| Web | apps/web và Dockerfile Next.js | Render Web Service, URL HTTPS riêng |
-| API/payment mock | apps/api và Dockerfile NestJS | Render Web Service, URL HTTPS riêng |
-| Database | Schema/migrations/seed từ apps/api | Render Postgres cùng workspace/region API |
-| CI/CD | Workflow do TV6 tạo | GitHub Actions → GHCR → Render deploy hooks |
+| proxy | Caddy 2 | Public TCP 80/443; route tới web/api |
+| web | apps/web, image GHCR brew-lite2-web | Network edge, cổng nội bộ 3000 |
+| api | apps/api, image GHCR brew-lite2-api | Network edge/data, cổng nội bộ 3001 |
+| db | PostgreSQL 16 | Network data, cổng 5432, không publish |
+| migrate | Cùng image API của release, chạy one-off | Network data, migration rồi thoát |
 
-Không yêu cầu VPS, Ubuntu, Caddy, SSH, domain mua riêng hoặc CDN riêng. Các đường dẫn code là thiết kế AS2, chưa phải file đang tồn tại.
+Server có thể là máy trường cấp, máy nhóm hoặc VPS. Tài nguyên và IP được ghi nhận khi cấp server. Các đường dẫn trong bảng là cấu trúc mã nguồn dự kiến.
 
-## 2. Kết nối và cấu hình
+## 2. Network và HTTPS
 
-Browser gọi web/API qua các hostname onrender.com được Render cấp. Next.js giữ các chức năng server-side cần thiết, không tự ép static export. API bind 0.0.0.0 và lấy cổng từ PORT của platform; không cố định port local cho Render.
+Network `edge` gồm proxy/web/api; `data` có `internal: true`, gồm api/db/migrate. Chỉ proxy publish 80/443. API gọi DB bằng hostname `db:5432`; web và browser không có quyền truy cập DB. SSH chỉ cho nguồn quản trị/deploy được phép; kiểm tra cả firewall host và published ports Docker.
 
-API dùng internal DATABASE_URL do Render cung cấp, cùng region/workspace với DB. Xóa toàn bộ IP allow list external của Postgres để tắt public DB; giữ mặc định 0.0.0.0/0 là không đạt yêu cầu. Web không nhận credential DB và không gọi DB trực tiếp. CI cũng không kết nối DB demo.
+Hai hostname `WEB_DOMAIN`, `API_DOMAIN` có DNS trỏ về server. Caddy route HTTPS tới `web:3000` và `api:3001`, redirect HTTP sang HTTPS. Trước khi cấp certificate cần kiểm tra DNS và cổng 80/443, sau đó thử truy cập HTTPS từ bên ngoài.
 
-Browser dùng NEXT_PUBLIC_API_URL=https://<api-service>.onrender.com; cấp khi build image frontend nếu biến được Next.js nhúng build-time. SSR nếu có dùng URL API phù hợp; không dùng hostname Compose `api` trên Render. Backend FRONTEND_ORIGIN trỏ đúng URL web. TV4/TV5 hiện thực contract, TV6 truyền cấu hình.
+Browser gọi `https://API_DOMAIN`. Nếu có SSR, web có thể gọi `http://api:3001` nội bộ. `NEXT_PUBLIC_API_URL` cần truyền ở bước build khi Next.js dùng biến public build-time; thay domain cần build lại. API bind 0.0.0.0 và CORS cho đúng `https://WEB_DOMAIN`.
 
-Secrets runtime (JWT_SECRET, DATABASE_URL, thông tin khởi tạo cần thiết) đặt trong Render environment. Hook URL và Render API token để kiểm tra deploy đặt trong GitHub Environment secrets; không in URL hook/token ra log. GHCR private image cần credential pull được Render hỗ trợ, quyền chỉ đọc package. Workflow publish có contents:read/packages:write theo job.
+## 3. Secrets và dữ liệu
 
-## 3. Hợp đồng CI/CD qua image
+- Runtime secrets (DATABASE_URL, JWT_SECRET, DB password) lưu ngoài Git, ví dụ `/opt/brewlite/secrets/`; thư mục 0700, file 0600, owner phù hợp tài khoản deploy. Dùng env-file hoặc mount tương thích với ứng dụng.
+- SSH deploy key và host fingerprint đã kiểm tra nằm trong GitHub Environment secrets. Credential pull GHCR private có quyền đọc package; job publish có quyền ghi package.
+- Volume `postgres_data` giữ DB; `caddy_data`/`caddy_config` giữ TLS state. Deploy/rollback không xóa volume.
+- Chỉ commit ví dụ tên biến, không in token/password/DB URL ra log. Secret development không dùng làm secret server.
 
-1. PR: Install → Lint → Unit Test → Build; integration/E2E dùng Postgres test với migration/seed. TV6 cấu hình required checks/branch protection.
-2. Push main hoặc tag release được phép: chạy kiểm tra, build hai image linux/amd64, push `ghcr.io/nguyentriet2k69-lang/brew-lite2-web:<sha>` và `brew-lite2-api:<sha>`; ghi digest và cấu hình build web trong manifest release.
-3. TV6 tạo image-backed web/API trên Render. Tắt đường auto-deploy bỏ qua kiểm tra nếu có; image-backed không tự deploy chỉ vì push registry.
-4. Serialize pipeline deploy. Gọi hook API với imgURL được URL-encode trỏ đúng tag/digest, giữ nguyên registry/repository đã cấu hình. Theo dõi deploy ID/trạng thái bằng Render API đến live hoặc failed trong timeout hữu hạn; 200/202 từ hook không chứng minh rollout thành công.
-5. Migration phải thành công trước khi API mới sẵn sàng (mục 4). API live thì deploy web, đợi web live, chạy smoke HTTPS: trang web, API /health và GET /products. Luồng menu→confirm kiểm tra bằng dữ liệu demo/mock, có cleanup.
-6. Nếu bước kiểm tra/publish/migration/deploy/smoke lỗi, dừng pipeline, không báo Pass. Rollback theo mục 6. Lưu SHA/digest/deploy ID, kết quả và log đã loại secrets.
+## 4. Quy trình CI/CD
 
-Chỉ kết nối repo rồi bật auto-deploy không thay thế chuỗi Image → Registry → Deploy → Smoke mà đề yêu cầu.
+1. PR chạy Install → Lint → Unit Test → Build; integration/E2E dùng DB test riêng. Cấu hình required checks để chặn merge khi kiểm tra thất bại.
+2. Push main hoặc tag release được phép: kiểm tra, build hai image phù hợp CPU server, push `ghcr.io/nguyentriet2k69-lang/brew-lite2-web:<sha>` và `brew-lite2-api:<sha>`. Lưu cặp digest cùng release manifest.
+3. Serialize deploy. SSH tới Ubuntu với fingerprint đã kiểm tra, pull image theo digest và giữ manifest release ổn định trước đó.
+4. Lần đầu khởi động DB và đợi healthy. Trước migration rủi ro, tạo bản dump. Chạy migrate one-off từ image API mới với DB nội bộ; lỗi thì dừng release.
+5. Cập nhật API/web bằng Compose, đợi healthy rồi smoke HTTPS: trang web, /health và GET /products. Checkout mock được kiểm tra theo test plan với dữ liệu demo.
+6. Nếu deploy/smoke fail: đánh dấu pipeline fail, rollback cặp image ổn định khi schema tương thích, kiểm tra lại health/smoke. Lưu SHA/digest, kết quả và log đã loại secrets.
 
-## 4. Migration và seed theo gói
+Compose và workflow cần dùng đúng các script migration, build và start của ứng dụng.
 
-API dùng migration versioned, script migration/seed cụ thể do TV5 cung cấp. Không dùng reset/schema push trên DB demo.
+## 5. Migration, health và khôi phục
 
-- Nếu gói hỗ trợ pre-deploy command: chạy migration trong Render trước rollout, fail thì dừng.
-- Với Free không có one-off job/shell: entrypoint API chạy migration có tính lặp an toàn rồi mới start server; migration lỗi thì process thoát, không start API. Chỉ một instance API, serialize release và dùng khóa migration của ORM để tránh đồng thời. Startup migration chạy lại khi cold start nên không được tạo migration mới hoặc seed mỗi lần.
-- Đổi schema theo expand/contract, giữ tương thích app cũ trong lúc app mới migrate; migration phá tương thích cần maintenance và review riêng.
-- Seed dữ liệu mẫu là thao tác khởi tạo có kiểm soát, không xóa dữ liệu phát sinh hoặc reset mật khẩu mỗi lần restart.
-- Export/restore DB dùng tác vụ trong Render có internal URL; Free có thể dùng chế độ bảo trì của image API chạy một tác vụ có kiểm soát và xuất tệp mã hóa tới nơi lưu riêng. Tệp không nằm trên filesystem tạm hoặc log. TV5/TV6 phải kiểm thử chế độ này trước nghiệm thu; đây là phần cần hiện thực, không phải tính năng backup mặc định của Render.
-- Nếu Free không đủ khả năng vận hành migration/export an toàn, nhóm chọn gói phù hợp trước deploy; không mở public DB để né giới hạn.
+Migration có version, ưu tiên tương thích ngược để app cũ vẫn chạy khi đổi schema. Không dùng reset/schema push thay lịch sử. Seed chỉ chạy có kiểm soát lúc khởi tạo dữ liệu mẫu, không tự xóa dữ liệu hoặc reset mật khẩu mỗi lần app restart.
 
-## 5. Health, log và giới hạn Free
+API /health kiểm tra DB: 200 khi sẵn sàng, 503 khi lỗi, không lộ cấu hình. DB dùng pg_isready; web có HTTP probe. Mốc cấu hình ban đầu: probe 30s, timeout 5s, retry 3; điều chỉnh start period theo thời gian khởi động của ứng dụng. Restart policy không tự restart chỉ vì unhealthy; pipeline cần xử lý rollout fail.
 
-API /health probe DB, trả 200 khi sẵn sàng và 503 khi lỗi, không trả secret. TV6 đặt đường healthcheck API; web dùng HTTP path sẵn có. Log stdout/stderr có timestamp/requestId/route/status/duration; xem qua Render logs, không log password/JWT/DB URL.
+Log stdout/stderr, có timestamp/requestId/status, không chứa secret. Dùng log rotation để giới hạn dung lượng và tra cứu log theo service.
 
-Free web có cold start sau 15 phút không traffic, workspace có 750 free instance hours/tháng dùng chung, không có persistent disk/one-off job/shell. Free Postgres hết hạn 30 ngày, không managed backup. DB lưu ở Render Postgres; filesystem web/API là tạm, không lưu dữ liệu nghiệp vụ tại đó.
+Dump DB trước migration rủi ro và trước bàn giao, lưu bản sao an toàn ngoài server, kiểm tra restore trên DB cô lập. Seed chỉ tái tạo dữ liệu mẫu, không thay thế backup dữ liệu phát sinh.
 
-TV6 ghi ngày tạo/hết hạn DB và theo dõi quota đến khi chấm. Warm-up trước demo và đo hiệu năng warm/cold riêng; không tuyên bố đạt NFR-01 khi chưa đo. Nếu cold start, thời hạn hoặc quota không đáp ứng tiêu chí chấm, cần gói khác/được duyệt ngân sách; tài liệu không giả định miễn phí vô hạn.
+Rollback app dùng cặp image/digest cũ, không tự đảo schema. Nếu migration không tương thích, chặn ghi và chọn sửa tiến hoặc restore backup theo quy trình vận hành được duyệt; ghi nhận dữ liệu có thể mất sau thời điểm dump.
 
-## 6. Rollback và phục hồi mức đồ án
+## 6. Các mục cần kiểm tra khi triển khai
 
-Giữ cặp image/digest của release ổn định trong GHCR. Nếu deploy mới lỗi và schema còn tương thích, trigger lại digest cũ cho API/web theo thứ tự phù hợp, chờ live rồi health/smoke; ghi kết quả. Không xóa image mà Render còn cần pull khi restart/rollback.
-
-Rollback image không tự đảo schema. Migration không tương thích cần chặn ghi, đánh giá forward-fix hoặc restore bản export đã kiểm tra. Không tự chạy migration revert. Export DB trước migration rủi ro và trước bàn giao, cất an toàn, restore thử trên DB cô lập; Free không có PITR. Dữ liệu seed có thể tái tạo, dữ liệu phát sinh cần export riêng.
-
-Không cam kết HA, zero downtime hoặc SLA cho đồ án. Mục tiêu là tái tạo được môi trường và có quy trình xử lý lỗi kiểm chứng được.
-
-## 7. Bàn giao TV3 → TV6
-
-| TV3 chốt thiết kế | TV6 hiện thực Task 4–5 |
+| Thành phần thiết kế | Nội dung kiểm tra |
 |---|---|
-| Render web + API + Postgres | Account/workspace, cùng region; plan phù hợp ngân sách/ngày chấm |
-| HTTPS onrender.com | Ghi URL web/API/health thực |
-| DB internal, external access tắt | Cấu hình networking và minh chứng |
-| GHCR + hooks theo digest | Workflow, image credentials, deploy ID và log smoke |
-| Migration/seed/export có kiểm soát | Script TV5, cấu hình Render và restore thử |
-| Health/log/rollback | Thu kết quả success/fail, cập nhật runbook lệnh thật |
+| Server Ubuntu + Compose, topology trên | Server/IP/hostname và cấu hình thật |
+| Caddy HTTPS, DB nội bộ | DNS/TLS, network/firewall và minh chứng |
+| GHCR → SSH deploy → smoke | Workflow, Dockerfile/Compose và logs |
+| Secrets/volume/migration/rollback | Cấu hình runtime, dump/restore và kiểm tra rollback |
 
-[Deployment source](diagrams/deployment.puml), [SVG](diagrams/deployment.svg), [overview](architecture/overview.md) và [ADR-005](architecture/adr/005-deployment-platform.md) mô tả cùng topology. Task 3 không chờ có code/live URL mới bàn giao; TV6 review thiết kế rồi hiện thực.
-
-## Nguồn chính thức
-
-Kiểm tra ngày 06/11/2026: [Image deployment](https://render.com/docs/deploying-an-image), [deploy hooks](https://render.com/docs/deploy-hooks), [Postgres networking](https://render.com/docs/postgresql-creating-connecting), [giới hạn Free](https://render.com/docs/free). TV6 kiểm tra lại plan/tính năng trước cấp phát.
+[Source PlantUML](diagrams/deployment.puml), [SVG](diagrams/deployment.svg), [overview](architecture/overview.md), [ADR-005](architecture/adr/005-deployment-platform.md) mô tả cùng kiến trúc. Kết quả triển khai được ghi nhận bằng URL truy cập, log pipeline và kết quả kiểm thử.
