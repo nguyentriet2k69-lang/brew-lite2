@@ -1,0 +1,56 @@
+@startuml
+skinparam style strictuml
+autonumber
+
+actor Customer
+participant "Next.js UI" as UI
+participant "NestJS API" as API
+database "PostgreSQL" as DB
+participant "Payment Mock" as Pay
+
+Customer -> UI: Bấm "Xác nhận thanh toán"
+UI -> UI: Sinh Idempotency-Key
+
+UI -> API: POST /orders (JWT, Cart Data, Idempotency-Key)
+activate API
+
+API -> API: Kiểm tra JWT & Validate dữ liệu
+
+alt JWT không hợp lệ / Dữ liệu sai
+    API --> UI: 401 Unauthorized / 400 Bad Request
+    UI --> Customer: Yêu cầu đăng nhập / Báo lỗi
+else Hợp lệ
+    API -> DB: Bắt đầu Transaction (Check tồn kho)
+    DB --> API: OK (Đủ hàng)
+    
+    API -> DB: Tạo Order (PENDING) + OrderItems
+    API -> DB: Cập nhật tồn kho (Trừ số lượng)
+    API -> DB: Commit Transaction
+    
+    API -> API: Xác nhận đơn hàng đã tạo xong
+    API --> UI: 201 Created (Mã đơn hàng)
+    
+    UI -> API: POST /payments (Mã đơn, Idempotency-Key)
+    activate API
+    API -> Pay: Gọi Cổng thanh toán (Xử lý giao dịch)
+    activate Pay
+    
+    alt Thanh toán thất bại (Thẻ hết tiền / Lỗi mạng)
+        Pay --> API: Báo lỗi (Payment Failed)
+        API -> DB: Cập nhật Order = PAYMENT_FAILED
+        API --> UI: 400 Payment Failed
+        UI --> Customer: Báo lỗi, giữ giỏ hàng, cho thử lại
+    else Thanh toán thành công
+        Pay --> API: Giao dịch thành công (Transaction ID)
+        API -> DB: Cập nhật Order = PAID
+        API -> DB: Lưu Payment Record
+        API --> UI: 200 OK
+        UI --> Customer: Hiển thị xác nhận, xóa giỏ hàng
+    end
+    
+    deactivate Pay
+    deactivate API
+end
+
+deactivate API
+@enduml

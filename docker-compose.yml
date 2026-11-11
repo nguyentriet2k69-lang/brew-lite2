@@ -1,0 +1,15 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: brewlite_db
+    environment:
+      POSTGRES_USER: brewlite
+      POSTGRES_PASSWORD: brewlite
+      POSTGRES_DB: brewlite
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+volumes:
+  postgres_data:

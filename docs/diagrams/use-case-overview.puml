@@ -1,0 +1,41 @@
+@startuml BrewLite_UseCase_Overview
+
+title BrewLite – Use-case tổng quát
+left to right direction
+skinparam packageStyle rectangle
+
+actor "Khách hàng" as Customer
+actor "Cổng thanh toán (Mock)" as PaymentMock
+actor "Nhân viên quầy\n(ngoài MVP)" as Staff
+
+rectangle "BrewLite System" {
+  usecase "UC-01\nXem menu" as UC1
+  usecase "UC-02\nXem chi tiết & chọn size/topping" as UC2
+  usecase "UC-03\nQuản lý giỏ hàng" as UC3
+  usecase "UC-04\nĐăng ký / Đăng nhập" as UC4
+  usecase "UC-05\nĐặt và thanh toán đơn hàng" as UC5
+  usecase "UC-06\nXem xác nhận & lịch sử đơn" as UC6
+  usecase "UC-07\nCập nhật trạng thái đơn\n(mở rộng)" as UC7
+  usecase "UC-08\nÁp khuyến mãi / điểm loyalty\n(mở rộng)" as UC8
+}
+
+Customer --> UC1
+Customer --> UC2
+Customer --> UC3
+Customer --> UC4
+Customer --> UC5
+Customer --> UC6
+Staff --> UC7
+
+UC5 ..> UC4 : <<include>>
+UC5 ..> UC3 : <<include>>
+UC8 ..> UC5 : <<extend>>
+UC2 ..> UC1 : <<extend>>
+UC5 --> PaymentMock : Gọi dịch vụ thanh toán
+
+note right of UC5
+  Use-case trọng tâm
+  (đặc tả chi tiết tại
+  uc-checkout-spec.md)
+end note
+@enduml

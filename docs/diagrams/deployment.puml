@@ -1,0 +1,75 @@
+@startuml
+left to right direction
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam packageStyle rectangle
+skinparam nodesep 40
+skinparam ranksep 50
+title BrewLite — Deployment on Ubuntu Server
+actor "Customer browser\nMobile / PWA" as customer
+package "LOCAL — Docker Compose" {
+  node "Developer machine" {
+    artifact "web :3000\napps/web (planned)" as lw
+    artifact "api :3001\napps/api (planned)" as la
+    database "Development PostgreSQL" as ld
+    storage "Dev DB volume" as lv
+  }
+  lw --> la : HTTP
+  la --> ld : SQL
+  ld --> lv : Persist
+}
+package "CI/CD — GitHub" {
+  cloud "Repository brew-lite2" as repo
+  node "GitHub Actions" {
+    artifact "Install / Lint / Test / Build\nImage build / deploy / smoke" as ci
+    database "Isolated test PostgreSQL" as testdb
+  }
+  cloud "GHCR\nbrew-lite2-web / brew-lite2-api\nCommit SHA tag + digest" as registry
+  artifact "GitHub Environment secrets\nSSH key / verified host fingerprint" as ghsecrets
+}
+node "Ubuntu 24.04 LTS server\nDocker Engine + Compose v2\nSchool-provided, existing host or VPS" as server {
+  node "edge network" {
+    node "proxy: Caddy 2\nPublic TCP 80/443\nWEB_DOMAIN / API_DOMAIN" as proxy
+    artifact "web: Next.js :3000\napps/web (planned)" as web
+    artifact "api: NestJS :3001\napps/api (planned)\nIncludes payment mock\nAlso joins data network" as api
+  }
+  package "data network — internal: true\nAPI + DB + migrate" {
+    database "db: PostgreSQL 16 :5432\nNo host port publishing" as db
+    artifact "migrate: API image\nOne-off before rollout" as migrate
+    storage "postgres_data" as disk
+  }
+  artifact "Runtime secrets outside Git\nDATABASE_URL / JWT_SECRET\nRestricted files" as secrets
+  storage "caddy_data / caddy_config" as certs
+  node "Docker healthchecks / rotated logs\nAPI /health probes DB" as health
+}
+cloud "Protected off-server DB dump\nVerify restore before handover" as backup
+customer --> lw : Local HTTP
+customer --> proxy : HTTPS web/API
+proxy --> web : HTTP web:3000
+proxy --> api : HTTP api:3001
+web --> api : Internal HTTP when SSR
+api --> db : Internal SQL / data network
+migrate --> db : Versioned migration
+db --> disk : Persist
+proxy --> certs : Persist TLS state
+secrets --> api : Runtime configuration
+secrets --> db : DB password
+secrets --> migrate : DB credentials
+repo --> ci : PR / main / release tag
+ghsecrets --> ci : Authorized deploy
+ci --> testdb : Integration / E2E
+ci --> registry : Publish checked images
+server --> registry : Pull release images
+ci --> server : SSH deploy / migration first
+ci --> proxy : HTTPS smoke after health
+db --> backup : Controlled dump via server task
+health --> api : GET /health
+health --> web : HTTP probe
+api --> health : Sanitized logs
+legend bottom
+  Deployment design; record actual server IP and hostnames during setup.
+  Only proxy has public application ports. DB remains internal.
+  Single Ubuntu server; no high-availability claim.
+  Payment mock is inside API. Compose is used locally and on server.
+endlegend
+@enduml
