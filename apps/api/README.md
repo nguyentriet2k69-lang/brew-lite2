@@ -1,132 +1,106 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# BrewLite Backend API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+NestJS and PostgreSQL API for the BrewLite menu and checkout. The backend owns product lookup, pricing, order snapshots, stock reservations, mock payments, and customer order history. The API does not accept a client-calculated final amount or real card credentials.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Requirements
 
-## Description
+- Node.js 20.19+ or 22.12+.
+- A PostgreSQL database for running the API.
+- A separate disposable PostgreSQL database for integration tests.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Configure the environment
 
-## Project setup
+Copy `.env.example` to `.env` in `apps/api` and set the database URL and JWT secret. `JWT_SECRET` must contain at least 32 UTF-8 bytes. Use a random secret and never commit `.env` or production credentials. `CORS_ORIGIN` is a comma-separated list of exact HTTP(S) origins; production requires an explicit value.
 
-```bash
-$ npm install
+| Variable | Required | Default | Purpose |
+|---|---:|---|---|
+| `NODE_ENV` | No | `development` | `development`, `test`, or `production` |
+| `PORT` | No | `3001` | HTTP listen port |
+| `DATABASE_URL` | Yes | — | PostgreSQL connection URL |
+| `JWT_SECRET` | Yes | — | HS256 signing secret, at least 32 UTF-8 bytes |
+| `JWT_EXPIRES_IN` | No | `1d` | Token lifetime such as `15m` or `1d` |
+| `CORS_ORIGIN` | Production: yes | `http://localhost:3000` outside production | Comma-separated exact origins; wildcard is rejected |
+| `DB_LOGGING` | No | `false` | TypeORM query logging; keep disabled in production |
+| `MOCK_PAYMENT_RESULT` | No | `success` | Mock terminal result: `success` or `failure` |
+| `MOCK_PAYMENT_TIMEOUT` | No | `false` | When `true`, mock payments return `UNKNOWN` for reconciliation testing |
+
+The API connects to PostgreSQL during application startup. Schema synchronization and automatic migrations are disabled. Apply migrations explicitly before starting a fresh database.
+
+## Run migrations and seed
+
+Run commands from `apps/api`:
+
+```powershell
+npm install
+npm run migration:show
+npm run migration:run
+npm run seed
+npm run start:dev
 ```
 
-## Compile and run the project
+Migration order is Product baseline, Users, Orders/Inventory, then Payment Attempts. The Product baseline preserves a compatible existing `product` table. Later migrations reject an untracked pre-existing schema where they cannot safely prove compatibility. Rollbacks for populated user, order, and payment tables are intentionally refused to protect records.
 
-```bash
-# development
-$ npm run start
+The seed inserts nine demo Products and is idempotent. It does not overwrite existing rows or remove user data. A Product with the same normalized name but a different ID is reported as a conflict and left unchanged. Demo prices and stock values are not official store values. Image source and attribution are recorded beside each seed URL in `src/products/demo-products.seed.ts`.
 
-# watch mode
-$ npm run start:dev
+## Run tests and checks
 
-# production mode
-$ npm run start:prod
+```powershell
+npm run lint
+npm run test -- --runInBand
+npm run test:cov -- --runInBand
+npm run build
+git diff --check
 ```
 
-## Run tests
+The PostgreSQL integration suites are enabled by `TEST_DATABASE_URL`. Point it only at a separate disposable test database; the tests run migrations and create/delete fixtures there.
 
-```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+```powershell
+$env:TEST_DATABASE_URL = 'postgresql://tester:password@localhost:5432/brewlite_test'
+npm run test -- --runInBand
 ```
 
-## Deployment
+With no `TEST_DATABASE_URL`, Jest marks the integration suites skipped. Unit tests with repositories or gateways mocked do not verify PostgreSQL transactions, row locks, migrations, or concurrency.
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+## API overview
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+JSON request and response bodies are used unless otherwise stated. Validation failures use HTTP 400. Errors share this envelope:
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+```json
+{
+  "statusCode": 409,
+  "code": "OUT_OF_STOCK",
+  "message": "There is not enough stock.",
+  "timestamp": "2026-11-14T00:00:00.000Z",
+  "path": "/orders"
+}
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+| Method and path | Authentication | Request | Success and important errors |
+|---|---|---|---|
+| `POST /auth/register` | Public | `{ "fullName": "Nguyen Van A", "email": "user@example.com", "password": "at-least-8-characters" }` | `201 { user: { id, fullName, email }, accessToken }`; `409 EMAIL_ALREADY_REGISTERED`; validation `400` |
+| `POST /auth/login` | Public | `{ "email": "user@example.com", "password": "…" }` | `200 { user, accessToken }`; `401 INVALID_CREDENTIALS`; validation `400` |
+| `GET /products` | Public | — | `200 Product[]` with `id`, `name`, `basePrice`, `stock`, `imageUrl` |
+| `GET /products/:id` | Public | Product UUID | `200 Product`; `400` invalid UUID; `404 PRODUCT_NOT_FOUND` |
+| `GET /pricing/options` | Public | — | `200 { currency, sizes, toppings }`; prices are configured integer VND adjustments |
+| `POST /orders` | Bearer JWT; `Idempotency-Key` header | `{ "items": [{ "productId": "uuid", "quantity": 1, "sizeCode": "M", "toppingIds": [] }] }` | `201 Order` with `totalAmount`, immutable item price snapshots, and reservation; `400` validation; `404 PRODUCT_NOT_FOUND`; `409 OUT_OF_STOCK`, `IDEMPOTENCY_KEY_REUSED`, or price errors |
+| `GET /orders/me?page=1&pageSize=20` | Bearer JWT | Optional pagination | `200 { items, page, pageSize, total }`; only the signed-in user's Orders |
+| `GET /orders/:id` | Bearer JWT | Order UUID | `200 Order` with item snapshots and reservation statuses; `400` invalid UUID; `404 ORDER_NOT_FOUND` for missing or unowned Orders |
+| `POST /payments` | Bearer JWT; `Idempotency-Key` header | `{ "orderId": "uuid", "method": "CARD" }` or `WALLET` | `200` terminal result or `202` `PROCESSING`/`UNKNOWN`; returns `paymentAttemptId`, `reservationId`, `status`, `amount`, `currency`, timestamps, and `orderStatus` |
+| `GET /payments/:id` | Bearer JWT | Payment attempt UUID | `200` persisted attempt plus Order and reservation states, amount/currency, and timestamps; `404 PAYMENT_ATTEMPT_NOT_FOUND` for missing or unowned attempts |
+| `GET /health` | Public | — | `200` when PostgreSQL responds to `SELECT 1`; otherwise `503 DATABASE_UNAVAILABLE` |
 
-## Observability
+Private endpoints require `Authorization: Bearer <accessToken>`. Ownership failures are returned as 404 so another user's resource is not disclosed. Public Product endpoints are read-only; there are no Product write routes.
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
+Swagger UI is served at `/api-docs` when the API is running.
 
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
+## Pricing, idempotency, and payments
 
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
+- Send Product IDs, quantity, size code, and topping IDs to `POST /orders`. The backend validates options, calculates prices, snapshots the applied prices/names, and reserves stock transactionally. Do not send or calculate `amount` on the client.
+- Repeating an Order request requires the same user, key, and payload. Reusing that key with a different payload returns `IDEMPOTENCY_KEY_REUSED`.
+- `POST /payments` requires an Order owned by the caller and a currently payable reservation. It reads the authoritative Order total; client-supplied amount is rejected.
+- On `SUCCESS`, the Order becomes `PAID` and stock stays consumed. On confirmed `FAILED`, the Order becomes `PAYMENT_FAILED` and the reservation is released once.
+- For timeout or `UNKNOWN`/`PROCESSING`, keep the Order pending and stock reserved. Poll `GET /payments/:paymentAttemptId` or reconcile via `POST /payments` using the **same** `Idempotency-Key`.
+- Use a new payment key only after a confirmed `FAILED` result. Retry on the same Order ID; the backend creates a new reservation. A retry with insufficient stock returns `OUT_OF_STOCK` and rolls back.
+- The mock gateway stores no card number, CVV, wallet credentials, or real payment credentials. Changing mock configuration is for development/test scenarios only.
 
-To add it to this project, run this and approve the code it prints at [observe.nestjs.com/link](https://observe.nestjs.com/link) - signing up for free if you have no account:
-
-```bash
-$ npx @nestjs/observe link
-```
-
-It installs `@nestjs/observe`, wires it into `AppModule` and `main.ts`, and writes the app key and secret into `.env`, which every `nest start` script (`start`, `start:dev`, `start:debug`) then loads. In production, set `OBSERVE_APP_KEY` and `OBSERVE_APP_SECRET` in the environment instead.
-
-Or do it by hand:
-
-```bash
-$ npm install @nestjs/observe
-```
-
-Then follow the [setup guide](https://docs.nestjs.com/observability/sdk) - it takes a single import and an app key.
-
-The free plan needs no payment details and covers 300,000 events a month. You can also browse the [live demo](https://www.observe-demo.nestjs.com/dashboard) first - the whole dashboard over a busy service's data, with nothing to install.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observe](https://observe.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Important error codes include `VALIDATION_ERROR`, `INVALID_ACCESS_TOKEN`, `EMAIL_ALREADY_REGISTERED`, `INVALID_CREDENTIALS`, `PRODUCT_NOT_FOUND`, `OUT_OF_STOCK`, `IDEMPOTENCY_KEY_REQUIRED`, `IDEMPOTENCY_KEY_REUSED`, `ORDER_NOT_FOUND`, `ORDER_NOT_PAYABLE`, `ORDER_NOT_RETRYABLE`, `PAYMENT_IN_PROGRESS`, `PAYMENT_ATTEMPT_NOT_FOUND`, `RESERVATION_EXPIRED`, `INVALID_RESERVATION_STATE`, and `DATABASE_UNAVAILABLE`.

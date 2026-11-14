@@ -1,9 +1,14 @@
-import { Controller, Get, Post, Body, Delete, Patch, Param } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe } from '@nestjs/common';
 import { ProductsService } from './products.service';
 import { Product } from './product.entity';
-import { ApiTags } from '@nestjs/swagger';
-import { CreateProductDto } from './create-product.dto';
-import { UpdateProductDto } from './update-product.dto';
+import {
+  ApiBadRequestResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiTags,
+} from '@nestjs/swagger';
 
 @ApiTags('Products')
 @Controller('products')
@@ -11,26 +16,21 @@ export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   @Get()
+  @ApiOperation({ summary: 'List public products' })
+  @ApiOkResponse({ type: Product, isArray: true })
   findAll(): Promise<Product[]> {
     return this.productsService.findAll();
   }
 
-  @Post()
-  create(@Body() createProductDto: CreateProductDto): Promise<Product> {
-    return this.productsService.create(createProductDto);
-  }
-
-  // Thêm API Xóa
-  @Delete(':id')
-  remove(@Param('id') id: string): Promise<void> {
-    return this.productsService.remove(id);
-  }
-
-  // Thêm API Cập nhật
-  @Patch(':id')
-   // Thêm API Cập nhật
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateProductDto: UpdateProductDto): Promise<Product | null> {
-    return this.productsService.update(id, updateProductDto);
+  @Get(':id')
+  @ApiOperation({ summary: 'Get a public product by UUID' })
+  @ApiParam({ name: 'id', format: 'uuid', example: '00000000-0000-4000-8000-000000000001' })
+  @ApiOkResponse({ type: Product })
+  @ApiBadRequestResponse({ description: 'The product id must be a UUID.' })
+  @ApiNotFoundResponse({ description: 'The product does not exist.' })
+  findById(
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ): Promise<Product> {
+    return this.productsService.findById(id);
   }
 }
