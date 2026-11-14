@@ -1,7 +1,37 @@
+import Image from 'next/image';
+
+interface Product {
+  id: string;
+  name: string;
+  basePrice: number;
+  stock: number;
+  imageUrl: string | null;
+}
+
+function isProduct(value: unknown): value is Product {
+  if (typeof value !== 'object' || value === null) return false;
+  const product = value as Record<string, unknown>;
+  return (
+    typeof product.id === 'string' &&
+    typeof product.name === 'string' &&
+    typeof product.basePrice === 'number' &&
+    typeof product.stock === 'number' &&
+    (typeof product.imageUrl === 'string' || product.imageUrl === null)
+  );
+}
+
 async function getProducts() {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/products`, { cache: 'no-store' });
+  const apiUrl =
+    process.env.API_INTERNAL_URL ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    'http://localhost:3001';
+  const res = await fetch(`${apiUrl}/products`, { cache: 'no-store' });
   if (!res.ok) throw new Error('Failed to fetch products');
-  return res.json();
+  const products: unknown = await res.json();
+  if (!Array.isArray(products) || !products.every(isProduct)) {
+    throw new Error('The API returned an invalid product menu.');
+  }
+  return products;
 }
 
 export default async function Home() {
@@ -24,7 +54,7 @@ export default async function Home() {
       
       {/* Lưới sản phẩm */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {products.map((product: any) => (
+        {products.map((product) => (
           <div 
             key={product.id} 
             className="bg-white p-4 rounded-2xl shadow-sm border border-stone-100 flex gap-4 hover:shadow-md hover:-translate-y-1 transition-all duration-300 group"
@@ -32,9 +62,11 @@ export default async function Home() {
             {/* Khung ảnh */}
             <div className="w-28 h-28 flex-shrink-0 bg-stone-100 rounded-xl overflow-hidden relative">
               {product.imageUrl && (
-                <img 
+                <Image
                   src={product.imageUrl} 
                   alt={product.name} 
+                  fill
+                  sizes="112px"
                   className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" 
                 />
               )}

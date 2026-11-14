@@ -104,10 +104,24 @@ export interface DemoSeedResult {
   conflicts: Array<{ name: string; existingId: string }>;
 }
 
+function normalizeProductName(name: string): string {
+  return name.trim().normalize('NFC').toLowerCase();
+}
+
 /** Insert missing demo products without changing or deleting existing rows. */
 export async function seedDemoProducts(
   manager: EntityManager,
 ): Promise<DemoSeedResult> {
+  const existingProducts = (await manager.query(
+    'SELECT id, name FROM product',
+  )) as Array<{ id: string; name: string }>;
+  const existingIdsByName = new Map<string, Set<string>>();
+  for (const { id, name } of existingProducts) {
+    const normalizedName = normalizeProductName(name);
+    const ids = existingIdsByName.get(normalizedName) ?? new Set<string>();
+    ids.add(id);
+    existingIdsByName.set(normalizedName, ids);
+  }
   const result: DemoSeedResult = {
     inserted: [],
     alreadyPresent: [],
@@ -115,34 +129,37 @@ export async function seedDemoProducts(
   };
 
   for (const demoProduct of DEMO_PRODUCTS) {
+    const normalizedName = normalizeProductName(demoProduct.name);
+    const nameMatches = existingIdsByName.get(normalizedName);
+    const conflictingNameId = [...(nameMatches ?? [])].find(
+      (id) => id !== demoProduct.id,
+    );
     const matchingId = await manager.findOneBy(Product, {
       id: demoProduct.id,
     });
     if (matchingId) {
-      if (matchingId.name === demoProduct.name) {
+      if (matchingId.name === demoProduct.name && !conflictingNameId) {
         result.alreadyPresent.push(demoProduct.name);
       } else {
         result.conflicts.push({
           name: demoProduct.name,
-          existingId: matchingId.id,
+          existingId: conflictingNameId ?? matchingId.id,
         });
       }
       continue;
     }
 
-    const nameMatches = (await manager.query(
-      'SELECT id, name FROM product WHERE lower(btrim(name)) = lower(btrim($1)) LIMIT 1',
-      [demoProduct.name],
-    )) as Array<{ id: string; name: string }>;
-    if (nameMatches.length > 0) {
+    const existingId = nameMatches?.values().next().value;
+    if (existingId) {
       result.conflicts.push({
         name: demoProduct.name,
-        existingId: nameMatches[0].id,
+        existingId,
       });
       continue;
     }
 
     await manager.insert(Product, demoProduct);
+    existingIdsByName.set(normalizedName, new Set([demoProduct.id]));
     result.inserted.push(demoProduct.name);
   }
 

@@ -37,19 +37,22 @@ integrationDescribe('Orders PostgreSQL transaction and concurrency integration',
 
   afterAll(async () => {
     if (!dataSource?.isInitialized) return;
-    for (const userId of createdUserIds) {
-      const orders = await dataSource.getRepository(Order).findBy({ userId });
-      const orderIds = orders.map(({ id }) => id);
-      if (orderIds.length) {
-        await dataSource.query('DELETE FROM "inventory_reservation_items" WHERE "reservationId" IN (SELECT "id" FROM "inventory_reservations" WHERE "orderId" = ANY($1::uuid[]))', [orderIds]);
-        await dataSource.query('DELETE FROM "inventory_reservations" WHERE "orderId" = ANY($1::uuid[])', [orderIds]);
-        await dataSource.query('DELETE FROM "order_items" WHERE "orderId" = ANY($1::uuid[])', [orderIds]);
-        await dataSource.getRepository(Order).delete(orderIds);
+    try {
+      for (const userId of createdUserIds) {
+        const orders = await dataSource.getRepository(Order).findBy({ userId });
+        const orderIds = orders.map(({ id }) => id);
+        if (orderIds.length) {
+          await dataSource.query('DELETE FROM "inventory_reservation_items" WHERE "reservationId" IN (SELECT "id" FROM "inventory_reservations" WHERE "orderId" = ANY($1::uuid[]))', [orderIds]);
+          await dataSource.query('DELETE FROM "inventory_reservations" WHERE "orderId" = ANY($1::uuid[])', [orderIds]);
+          await dataSource.query('DELETE FROM "order_items" WHERE "orderId" = ANY($1::uuid[])', [orderIds]);
+          await dataSource.getRepository(Order).delete(orderIds);
+        }
+        await dataSource.getRepository(User).delete(userId);
       }
-      await dataSource.getRepository(User).delete(userId);
+      for (const productId of createdProductIds) await dataSource.getRepository(Product).delete(productId);
+    } finally {
+      await dataSource.destroy();
     }
-    for (const productId of createdProductIds) await dataSource.getRepository(Product).delete(productId);
-    await dataSource.destroy();
   }, 60_000);
 
   it('uses the idempotency unique constraint so concurrent identical requests hold stock once', async () => {
@@ -101,13 +104,26 @@ integrationDescribe('Orders PostgreSQL transaction and concurrency integration',
         basePrice: 12345,
         stock: 7,
       });
+      const beforeSeed = await manager.query(
+        'SELECT id, name FROM product',
+      ) as Array<{ id: string; name: string }>;
+      const beforeSameNameCount = beforeSeed.filter(
+        ({ name }) =>
+          name.trim().normalize('NFC').toLowerCase() ===
+          demo.name.trim().normalize('NFC').toLowerCase(),
+      ).length;
       const result = await seedDemoProducts(manager);
       expect(result.conflicts).toContainEqual({ name: demo.name, existingId });
       const sameName = await manager.query(
-        'SELECT id FROM product WHERE lower(btrim(name)) = lower(btrim($1))',
-        [demo.name],
-      ) as Array<{ id: string }>;
-      expect(sameName).toHaveLength(1);
+        'SELECT id, name FROM product',
+      ) as Array<{ id: string; name: string }>;
+      expect(
+        sameName.filter(
+          ({ name }) =>
+            name.trim().normalize('NFC').toLowerCase() ===
+            demo.name.trim().normalize('NFC').toLowerCase(),
+        ),
+      ).toHaveLength(beforeSameNameCount);
       expect(await manager.findOneBy(Product, { id: existingId })).toMatchObject({ basePrice: 12345, stock: 7 });
       throw new Error('Rollback conflicting seed fixture.');
     })).rejects.toThrow('Rollback conflicting seed fixture.');

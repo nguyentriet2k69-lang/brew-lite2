@@ -8,9 +8,9 @@ Web app mobile-first/PWA cho phép khách hàng xem menu, chọn size/topping, q
 
 | Mục | Liên kết |
 |:--|:--|
-| Frontend (production, HTTPS) | `https://<TODO-frontend-url>` |
-| API (production) | `https://<TODO-api-url>` |
-| Health check | `https://<TODO-api-url>/health` |
+| Frontend (production, HTTPS) | Chưa deploy; cấu hình bằng `WEB_DOMAIN` |
+| API (production) | Chưa deploy; cấu hình bằng `API_DOMAIN` |
+| Health check | Sau deploy: `https://<API_DOMAIN>/health` |
 | Video demo | `<TODO>` |
 | Release notes | `docs/release-notes.md` |
 
@@ -40,7 +40,8 @@ brewlite/
 │   ├── diagrams/             # .puml + .svg (use-case, activity, sequence, class, deployment)
 │   ├── architecture/         # overview.md, adr/
 │   ├── traceability-matrix.md
-│   └── deployment.md
+│   ├── deployment.md
+│   └── production.env.example
 ├── tests/                    # integration + E2E
 ├── .github/workflows/        # ci.yml, cd.yml
 ├── docker-compose.yml
@@ -59,10 +60,10 @@ brewlite/
 ### Cách 1: Docker Compose (khuyến nghị)
 
 ```bash
-git clone https://github.com/<TODO-org>/brewlite.git
-cd brewlite
-cp .env.example .env          # chỉnh giá trị nếu cần
-docker compose up --build
+git clone https://github.com/nguyentriet2k69-lang/brew-lite2.git
+cd brew-lite2
+cp .env.example .env          # đổi JWT_SECRET và mật khẩu local trước khi dùng
+docker compose up --build --wait
 ```
 
 Sau khi chạy:
@@ -73,8 +74,7 @@ Sau khi chạy:
 | API | http://localhost:3001 |
 | Health | http://localhost:3001/health |
 
-Migration và seed dữ liệu mẫu: `docker compose exec api npm run migration:run && docker compose exec api npm run seed`
-(đổi tên script cho khớp `apps/api/package.json`).
+Compose chờ PostgreSQL healthy rồi áp dụng migration và seed idempotent trước khi mở API. PostgreSQL chỉ bind vào loopback; cấu hình local này không dùng làm cấu hình production.
 
 ### Cách 2: Chạy từng phần
 
@@ -101,13 +101,12 @@ Chỉ commit `.env.example`; **không** commit `.env` hoặc secret thật.
 
 | Biến | Mô tả | Ví dụ |
 |:--|:--|:--|
-| `DATABASE_URL` | Chuỗi kết nối PostgreSQL | `postgresql://brewlite:brewlite@db:5432/brewlite` |
-| `JWT_SECRET` | Khóa ký JWT | `change-me` |
+| `DATABASE_URL` | Chuỗi kết nối PostgreSQL trong Compose | Xem `.env.example` |
+| `POSTGRES_PASSWORD` | Mật khẩu DB local, đồng bộ với `DATABASE_URL` | Placeholder local trong `.env.example` |
+| `JWT_SECRET` | Khóa ký JWT, tối thiểu 32 bytes UTF-8 | Tạo giá trị riêng, không dùng placeholder production |
 | `JWT_EXPIRES_IN` | Thời hạn token | `1d` |
-| `NEXT_PUBLIC_API_URL` | URL API cho frontend | `http://localhost:3001` |
-| `PORT` | Cổng API | `3001` |
-
-(Cập nhật bảng này cho khớp `.env.example` thực tế.)
+| `NEXT_PUBLIC_API_URL` | URL API nội bộ dùng khi build Web trong Compose | `http://api:3001` |
+| `API_HOST_PORT`, `WEB_HOST_PORT` | Cổng host chỉ bind loopback | `3001`, `3000` |
 
 ## API chính
 
@@ -124,39 +123,51 @@ Chỉ commit `.env.example`; **không** commit `.env` hoặc secret thật.
 
 ## Kiểm thử
 
-```bash
-# Unit test
-cd apps/api && npm test
-cd apps/web && npm test
+```powershell
+# Run from repository root
+docker compose -f docker-compose.test.yml up -d --wait
 
-# Integration test (cần DB test chạy)
+# Unit test
+Push-Location apps\api
+npm run test -- --runInBand
+
+# PostgreSQL integration test (Compose test DB riêng)
+$env:TEST_DATABASE_URL = 'postgresql://brewlite_test@127.0.0.1:5433/brewlite_test'
 npm run test:integration
 
-# E2E (menu -> xác nhận đơn)
+# E2E (menu -> đăng nhập -> đặt đơn -> xác nhận thanh toán)
 npm run test:e2e
+Remove-Item Env:TEST_DATABASE_URL
+Pop-Location
+docker compose -f docker-compose.test.yml down
 
 # Lint và build
+Push-Location apps\api
 npm run lint
 npm run build
+Pop-Location
+Push-Location apps\web
+npm run lint
+npm run build
+Pop-Location
 ```
 
 Ánh xạ yêu cầu – test: xem `docs/traceability-matrix.md`.
 
 ## CI/CD
 
-- **CI** (`.github/workflows/ci.yml`): chạy khi mở/cập nhật PR: Install → Lint → Unit Test → Build. PR không được merge nếu CI fail.
-- **CD** (`.github/workflows/cd.yml`): chạy khi push `main` hoặc tag: Lint/Test → Build → Build image → Push registry → Deploy → Smoke test. Pipeline dừng nếu bất kỳ bước nào fail.
-- Secret lưu trong GitHub Secrets/biến môi trường của nền tảng, không nằm trong repo hoặc log.
+- **CI** (`.github/workflows/ci.yml`): chạy khi mở/cập nhật PR: Install → Lint → Unit + PostgreSQL integration/E2E → Build. Cần bật branch protection và required checks `API`, `Web` trong GitHub Settings.
+- **CD** (`.github/workflows/cd.yml`): push `main` hoặc tag `v*` chạy Verify → Build image → Push GHCR theo SHA/semantic version → Deploy Compose trên Ubuntu → HTTPS smoke test; lỗi smoke tự gọi rollback image.
+- Chọn Ubuntu 24.04 theo [deployment runbook](docs/deployment.md). Workflow chưa chạy production vì chưa được cấp server, DNS và GitHub Environment secrets; không nhập secrets vào repo hoặc chat.
 
 ## Triển khai và Rollback
 
-Chi tiết: `docs/deployment.md`. Nền tảng triển khai: `<TODO: Render / Railway / Fly.io / VPS>`.
+Chi tiết: `docs/deployment.md`; cấu hình mẫu production: `docs/production.env.example`. Nền tảng đã chọn: Ubuntu 24.04 + Docker Compose + Caddy.
 
 **Rollback (tóm tắt):**
-1. Xác định phiên bản ổn định gần nhất (tag hoặc image tag).
-2. Triển khai lại image/tag đó trên nền tảng (hoặc `git revert` rồi chạy CD).
-3. Nếu migration gây lỗi, chạy migration đảo (`migration:revert`) trước khi chạy lại app. Ưu tiên migration tương thích ngược.
-4. Chạy smoke test: `/health` trả 200 và luồng menu hoạt động.
+1. Tự động: CD phục hồi SHA ứng dụng trước khi rollout nếu deploy/server smoke fail; public smoke fail thì gọi `bash ./rollback-production.sh`.
+2. Thủ công: chạy `bash ./rollback-production.sh` trên server trong `/opt/brewlite`; kiểm tra `/health`, `/products` và trang web.
+3. Rollback image không đảo schema. Không chạy `migration:revert` trên dữ liệu production; dùng migration tương thích ngược hoặc quy trình backup/restore đã được duyệt.
 
 ## Tài liệu
 
@@ -171,10 +182,11 @@ Chi tiết: `docs/deployment.md`. Nền tảng triển khai: `<TODO: Render / Ra
 
 ## Quy trình làm việc nhóm
 
-- **Nhánh:** `main` (production) ← `develop` ← `feature/*` hoặc `fix/*`. Không push trực tiếp vào `main`/`develop`.
-- **Commit:** `type(scope): message`, ví dụ `feat(api): add GET /products`. Các type: `feat`, `fix`, `docs`, `test`, `refactor`, `ci`, `chore`.
-- **Pull request:** mô tả, liên kết issue, checklist DoD, ảnh minh họa nếu có UI; cần ít nhất 1 người review (không phải tác giả).
-- **Definition of Done:** code chạy, test pass, lint pass, tài liệu và ma trận truy vết cập nhật, đạt AC, đã review.
+- **Nhánh:** `main` là production; `develop` là nhánh tích hợp; dùng `feature/<issue>-<short-name>`, `fix/<issue>-<short-name>` hoặc `hotfix/<short-name>`. Không push trực tiếp vào `main`/`develop`.
+- **Bảo vệ nhánh:** bật PR bắt buộc, ít nhất 1 approval không phải tác giả và yêu cầu cả hai status check `API` và `Web` trong `.github/workflows/ci.yml` trước khi merge; dismiss approval cũ khi có commit mới.
+- **Commit:** Conventional Commits `type(scope): imperative summary`, ví dụ `feat(api): add product endpoint`. Type tối thiểu: `feat`, `fix`, `docs`, `test`, `refactor`, `ci`, `chore`; dùng `!`/`BREAKING CHANGE` khi không tương thích.
+- **Pull request:** dùng `.github/pull_request_template.md`, liên kết issue, ghi lệnh kiểm thử và minh chứng; thêm ảnh nếu thay đổi UI.
+- **Definition of Done:** acceptance criteria đạt; lint, unit/integration/E2E liên quan và build pass; migration/rollback an toàn; tài liệu và traceability cập nhật; không có secret; PR đã review và CI bắt buộc xanh.
 
 ## Nhóm thực hiện
 
@@ -195,20 +207,20 @@ Chi tiết: `docs/deployment.md`. Nền tảng triển khai: `<TODO: Render / Ra
 - [ ] Sequence diagram (JWT, transaction, alt, Idempotency-Key)
 - [ ] Class diagram domain
 - [ ] Kiến trúc + ADR
-- [ ] Deployment diagram khớp nền tảng thực tế
+- [ ] Deployment diagram/host thật được xác minh (đã chọn Ubuntu, còn chờ server)
 - [ ] Repository đúng cấu trúc + tài liệu
 - [ ] MVP Sprint 1 (menu chạy được)
-- [ ] CI + minh chứng success/fail
+- [x] CI + minh chứng success/fail (local; xem `docs/evidence/`)
 - [ ] MVP Sprint 2 end-to-end
-- [ ] Unit + Integration + ≥ 1 E2E
-- [ ] `docker compose up` chạy được
-- [ ] Migration/seed tái tạo DB + `/health`
-- [ ] CD pipeline đầy đủ
+- [x] Unit + Integration (9/9 PostgreSQL) + ≥ 1 E2E
+- [ ] `docker compose up` chạy được (Docker Engine local chưa khả dụng)
+- [x] Migration/seed trên PostgreSQL thật + `/health`
+- [x] CD workflow/configuration; cần host/secrets để xác minh live deploy
 - [ ] URL frontend production HTTPS
 - [ ] URL API + health check
-- [ ] Database không public trực tiếp
-- [ ] Secret không nằm trong repo/log
-- [ ] Release notes + README + rollback
+- [x] Production Compose không publish database; cần xác minh firewall trên host
+- [x] Không thêm secret production vào repo; runtime secrets nằm ngoài Git
+- [x] Release notes + README + rollback
 - [ ] Video demo end-to-end
 - [ ] Sprint Review + Retrospective
 - [ ] Ma trận truy vết đầy đủ

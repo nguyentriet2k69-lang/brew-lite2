@@ -7,12 +7,9 @@ function makeManager() {
   const findOneBy = jest.fn(async (_entity: typeof Product, where: { id: string }) =>
     rows.get(where.id) ?? null,
   );
-  const query = jest.fn(async (_sql: string, [name]: [string]) => {
-    const existing = [...rows.values()].find(
-      (row) => row.name.trim().toLowerCase() === name.trim().toLowerCase(),
-    );
-    return existing ? [{ id: existing.id, name: existing.name }] : [];
-  });
+  const query = jest.fn(async (_sql: string) =>
+    [...rows.values()].map(({ id, name }) => ({ id, name })),
+  );
   const insert = jest.fn(async (_entity: typeof Product, value: Product) => {
     rows.set(value.id, value);
     return undefined;

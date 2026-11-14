@@ -1,0 +1,219 @@
+name: CD
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: brewlite_test
+          POSTGRES_USER: brewlite_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U brewlite_test -d brewlite_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            apps/api/package-lock.json
+            apps/web/package-lock.json
+      - name: Install API
+        working-directory: apps/api
+        run: npm ci
+      - name: API lint
+        working-directory: apps/api
+        run: npm run lint
+      - name: API unit tests
+        working-directory: apps/api
+        run: npm run test -- --runInBand
+      - name: PostgreSQL integration tests
+        working-directory: apps/api
+        run: npm run test:integration
+        env:
+          TEST_DATABASE_URL: postgresql://brewlite_test@127.0.0.1:5432/brewlite_test
+      - name: PostgreSQL E2E tests
+        working-directory: apps/api
+        run: npm run test:e2e
+        env:
+          TEST_DATABASE_URL: postgresql://brewlite_test@127.0.0.1:5432/brewlite_test
+      - name: API build
+        working-directory: apps/api
+        run: npm run build
+      - name: Install web
+        working-directory: apps/web
+        run: npm ci
+      - name: Web lint
+        working-directory: apps/web
+        run: npm run lint
+      - name: Web build
+        working-directory: apps/web
+        run: npm run build
+
+  build-push:
+    name: Build and push images
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    env:
+      API_DOMAIN: ${{ vars.API_DOMAIN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate public API domain
+        run: |
+          if [[ -z "$API_DOMAIN" ]]; then
+            echo "::error::Set the repository variable API_DOMAIN before publishing production images."
+            exit 1
+          fi
+      - name: Login to GHCR
+        run: |
+          printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push API image
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER}/brew-lite2-api"
+          tags=(--tag "$image:$GITHUB_SHA")
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            tags+=(--tag "$image:$GITHUB_REF_NAME")
+          fi
+          docker buildx build --platform linux/amd64 --push "${tags[@]}" --file apps/api/Dockerfile apps/api
+      - name: Build and push web image
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER}/brew-lite2-web"
+          tags=(--tag "$image:$GITHUB_SHA")
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            tags+=(--tag "$image:$GITHUB_REF_NAME")
+          fi
+          docker buildx build --platform linux/amd64 --push "${tags[@]}" \
+            --build-arg "NEXT_PUBLIC_API_URL=https://${API_DOMAIN}" \
+            --file apps/web/Dockerfile apps/web
+    outputs:
+      release_sha: ${{ github.sha }}
+
+  deploy:
+    name: Deploy and smoke test
+    needs: build-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      API_DOMAIN: ${{ vars.API_DOMAIN }}
+      WEB_DOMAIN: ${{ vars.WEB_DOMAIN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate deployment configuration
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          GHCR_READ_USERNAME: ${{ secrets.GHCR_READ_USERNAME }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+        run: |
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS DEPLOY_PATH GHCR_READ_USERNAME GHCR_READ_TOKEN API_DOMAIN WEB_DOMAIN; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Required production configuration is missing: $name"
+              exit 1
+            fi
+          done
+          if [[ ! "$DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+            echo "::error::DEPLOY_USER must be a valid Unix account name."
+            exit 1
+          fi
+          if [[ ! "$DEPLOY_HOST" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]]; then
+            echo "::error::DEPLOY_HOST must be an IPv4 address or DNS hostname."
+            exit 1
+          fi
+          domain_regex='^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$'
+          if [[ ! "$API_DOMAIN" =~ $domain_regex || ! "$WEB_DOMAIN" =~ $domain_regex ]]; then
+            echo "::error::WEB_DOMAIN and API_DOMAIN must be valid public DNS hostnames."
+            exit 1
+          fi
+          if [[ ! "$GHCR_READ_USERNAME" =~ ^[A-Za-z0-9-]+$ ]]; then
+            echo "::error::GHCR_READ_USERNAME must be a GitHub account or organization name."
+            exit 1
+          fi
+          if [[ "$DEPLOY_PATH" == "/" || ! "$DEPLOY_PATH" =~ ^/[A-Za-z0-9_-][A-Za-z0-9._/-]*$ || "$DEPLOY_PATH" == *".."* ]]; then
+            echo "::error::DEPLOY_PATH must be a simple absolute path without spaces or parent-directory segments."
+            exit 1
+          fi
+      - name: Configure verified SSH access
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/brewlite-deploy"
+          chmod 600 "$HOME/.ssh/brewlite-deploy"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+      - name: Upload deployment files and login to GHCR
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          GHCR_READ_USERNAME: ${{ secrets.GHCR_READ_USERNAME }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+        run: |
+          ssh_options=(-i "$HOME/.ssh/brewlite-deploy" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts")
+          ssh "${ssh_options[@]}" "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_PATH'"
+          scp "${ssh_options[@]}" docker-compose.prod.yml Caddyfile scripts/deploy-production.sh scripts/rollback-production.sh \
+            "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
+          printf '%s' "$GHCR_READ_TOKEN" | ssh "${ssh_options[@]}" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "docker login ghcr.io --username '$GHCR_READ_USERNAME' --password-stdin"
+      - name: Deploy release
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          ssh_options=(-i "$HOME/.ssh/brewlite-deploy" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts")
+          ssh "${ssh_options[@]}" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cd '$DEPLOY_PATH' && RELEASE_SHA='$GITHUB_SHA' bash ./deploy-production.sh"
+      - name: Public HTTPS smoke test
+        id: public-smoke
+        run: |
+          curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 2 "https://${WEB_DOMAIN}/" > /dev/null
+          curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 2 "https://${API_DOMAIN}/health" > /dev/null
+          curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 2 "https://${API_DOMAIN}/products" > /dev/null
+      - name: Roll back after failed public smoke test
+        if: failure() && steps.public-smoke.outcome == 'failure'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          ssh_options=(-i "$HOME/.ssh/brewlite-deploy" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts")
+          ssh "${ssh_options[@]}" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cd '$DEPLOY_PATH' && bash ./rollback-production.sh"
+      - name: Remove deployment SSH key
+        if: always()
+        run: rm -f "$HOME/.ssh/brewlite-deploy"

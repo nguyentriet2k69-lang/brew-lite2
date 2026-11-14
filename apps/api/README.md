@@ -52,14 +52,39 @@ npm run build
 git diff --check
 ```
 
-The PostgreSQL integration suites are enabled by `TEST_DATABASE_URL`. Point it only at a separate disposable test database; the tests run migrations and create/delete fixtures there.
+## PostgreSQL integration tests
+
+The integration runner requires `TEST_DATABASE_URL`; it fails rather than silently skipping PostgreSQL tests when the variable is missing or invalid. Both integration suites run the TypeORM migrations before their tests and clean up fixture data afterward. Tests use unique fixture IDs and run in-band to avoid migration startup races.
+
+From the repository root, start the isolated test database. It binds only to localhost port `5433`, uses a dedicated PostgreSQL 15 volume, and does not share the development database volume:
 
 ```powershell
-$env:TEST_DATABASE_URL = 'postgresql://tester:password@localhost:5432/brewlite_test'
-npm run test -- --runInBand
+docker compose -f docker-compose.test.yml up -d --wait
 ```
 
-With no `TEST_DATABASE_URL`, Jest marks the integration suites skipped. Unit tests with repositories or gateways mocked do not verify PostgreSQL transactions, row locks, migrations, or concurrency.
+Then run from `apps/api`:
+
+```powershell
+$env:TEST_DATABASE_URL = 'postgresql://brewlite_test@127.0.0.1:5433/brewlite_test'
+npm run test:integration
+Remove-Item Env:TEST_DATABASE_URL
+```
+
+Stop the test service with `docker compose -f docker-compose.test.yml down`. To discard and recreate only its isolated test database volume, use `docker compose -f docker-compose.test.yml down -v`.
+
+Verification on 2026-11-14: **PASS — 2 integration suites, 9 tests** against an isolated PostgreSQL 16 instance. The Docker Compose service definition was validated, but its container could not be started in this environment because the Docker Desktop engine was unavailable.
+
+## End-to-end checkout test
+
+The E2E suite uses `TEST_DATABASE_URL` and a disposable PostgreSQL database. It applies migrations and seed data, starts the real Nest application, fetches the menu, registers and logs in a customer, places an order, completes a mock Wallet payment, and verifies the paid order. It also checks `GET /health`. The test removes its user, order, reservation, payment, and temporary product fixtures.
+
+```powershell
+$env:TEST_DATABASE_URL = 'postgresql://brewlite_test@127.0.0.1:5433/brewlite_test'
+npm run test:e2e
+Remove-Item Env:TEST_DATABASE_URL
+```
+
+In production, the release script runs `node dist/run-migrations.js` as a one-off job before updating the API/web images, and runs the idempotent demo seed only on initial setup. Local Compose runs migration and seed before starting the API.
 
 ## API overview
 

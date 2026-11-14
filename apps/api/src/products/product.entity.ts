@@ -48,7 +48,7 @@ export class Product {
   @ApiProperty()
   stock: number;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   @ApiProperty({ type: String, nullable: true })
   imageUrl: string | null;
 }

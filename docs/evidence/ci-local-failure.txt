@@ -1,0 +1,13 @@
+BrewLite local CI failure evidence
+Date: 2026-11-14
+Note: Failure captured on the first real-PostgreSQL integration run before correcting Product metadata.
+
+PostgreSQL integration tests
+  npm run test:integration
+  FAIL: DataTypeNotSupportedError
+  Data type "Object" in "Product.imageUrl" is not supported by "postgres".
+  Test Suites: 2 failed, 2 total
+  Tests:       9 failed, 9 total
+
+The failure was fixed by explicitly declaring Product.imageUrl as nullable varchar.
+The subsequent PostgreSQL run passed all 9 tests. See apps/api/README.md.

@@ -1,0 +1,38 @@
+BrewLite local CI validation evidence
+Date: 2026-11-14
+Note: These are local command results; the GitHub Actions workflow has not yet run remotely.
+
+API lint
+  npm run lint
+  PASS (exit code 0)
+
+API unit tests
+  TEST_DATABASE_URL=<isolated PostgreSQL URL> npm run test -- --runInBand
+  Test Suites: 28 passed, 28 total
+  Tests:       126 passed, 126 total
+  PASS (includes all PostgreSQL integration tests)
+
+PostgreSQL integration tests
+  npm run test:integration
+  Test Suites: 2 passed, 2 total
+  Tests:       9 passed, 9 total
+  PASS against an isolated PostgreSQL 16.15 instance
+
+End-to-end tests
+  npm run test:e2e
+  Test Suites: 1 passed, 1 total
+  Tests:       2 passed, 2 total
+  PASS against the same isolated PostgreSQL instance
+
+API build
+  npm run build
+  PASS (exit code 0)
+
+Web lint and build
+  npm run lint
+  npm run build
+  PASS (exit code 0)
+
+Compose configuration
+  docker compose --env-file .env.example -f docker-compose.yml config -q
+  PASS (configuration valid; Docker Desktop engine was unavailable for container startup)
