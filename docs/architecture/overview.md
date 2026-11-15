@@ -1,6 +1,6 @@
 # Kiến trúc BrewLite
 
-Tài liệu mô tả kiến trúc BrewLite theo SRS và các sơ đồ UML. Repository hiện có Next.js tại `apps/web`, NestJS tại `apps/api`, PostgreSQL, TypeORM migrations và CI/CD GitHub Actions. Production target là Vercel (web), Render Web Service (API) và Render PostgreSQL managed; Docker Compose chỉ dùng local/testing. CD run #4 attempt 4 passed Verify, Render deploy and API smoke, then failed at Vercel because the CLI ran in `apps/web` although the Vercel project Root Directory is `apps/web`; the Render rollback API returned HTTP 500. The workflow now deploys from repository root; new CI/CD evidence is pending. Xem [deployment runbook](../deployment.md).
+Tài liệu mô tả kiến trúc BrewLite theo SRS và các sơ đồ UML. Repository hiện có Next.js tại `apps/web`, NestJS tại `apps/api`, PostgreSQL, TypeORM migrations và CI/CD GitHub Actions. Production target là Vercel (web), Render Web Service (API) và Render PostgreSQL managed; Docker Compose chỉ dùng local/testing. CD run #4 attempt 4 passed Verify, Render deploy and API smoke, then failed at Vercel because the CLI ran in `apps/web` although the Vercel project Root Directory is `apps/web`; the Render rollback API returned HTTP 500. The fix is in PR #10, and CI run #12 passed API/Web; production CD rerun is pending merge. Xem [deployment runbook](../deployment.md).
 
 ## 1. Mục tiêu và phạm vi
 
@@ -64,7 +64,7 @@ Hai request HTTP tạo đơn và thanh toán không nằm trong một transactio
 
 | Gap còn lại | Tác động / việc cần làm |
 |---|---|
-| Production CD chưa hoàn tất | GitHub CI run #9 trên `main` pass; CD run #4 attempt 4 Verify/Render/API smoke pass, Vercel deploy fail do CLI chạy từ `apps/web` trong khi project Root Directory cũng là `apps/web`; Render rollback API trả HTTP 500. Workflow chạy CLI từ repository root; cần CI và CD mới pass. |
+| Production CD chưa hoàn tất | GitHub CI run #9 trên `main` pass; CD run #4 attempt 4 Verify/Render/API smoke pass, Vercel deploy fail do CLI chạy từ `apps/web` trong khi project Root Directory cũng là `apps/web`; Render rollback API trả HTTP 500. PR #10 runs CLI from repository root, and CI run #12 passed; a successful production CD run remains pending merge. |
 | Web lưu JWT trong sessionStorage, chưa có CSP/XSS hardening | Rà soát trước production; cân nhắc cookie HttpOnly/SameSite và CSRF nếu frontend/API contract hỗ trợ. |
 | Offline checkout không hỗ trợ | Service worker chỉ cache shell/static và public catalog/pricing; không cache token, đơn hàng hay thanh toán. |
 | FR-08 chỉ có trạng thái payment/order hiện hành; staff transitions chưa triển khai | Xác nhận giữ UC-07 ngoài MVP hay bổ sung staff workflow; SRS hiện ghi Should. |

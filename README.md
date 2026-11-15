@@ -242,7 +242,7 @@ Deploy production tự động qua GitHub Actions sau khi cấu hình GitHub Env
 - [x] `docker compose up --build --wait` local; API/Web/DB healthy và HTTP smoke pass
 - [x] Migration/seed trên PostgreSQL local Compose + `/health`
 - [x] CD workflow code/configuration cho Vercel + Render
-- [ ] Automated production release chưa hoàn tất: CD run #4 attempt 4 deploy Render/API smoke pass, Vercel lỗi root directory và Render rollback API trả HTTP 500. Workflow root-path fix đã chuẩn bị; cần CI/PR và một CD run mới.
+- [ ] Automated production release chưa hoàn tất: CD run #4 attempt 4 deploy Render/API smoke pass, Vercel lỗi root directory và Render rollback API trả HTTP 500. PR #10 đã qua CI; cần merge và CD run mới để xác minh deploy production.
 - [x] Frontend HTTPS, manifest và icons trả HTTP 200 trên cả hai Vercel domains
 - [x] Production API health/products trả HTTP 200; products có 9 items
 - [x] Production CORS preflight cho hai web origins
@@ -256,7 +256,7 @@ Deploy production tự động qua GitHub Actions sau khi cấu hình GitHub Env
 - [ ] Lịch sử Git rõ ràng + cấp quyền truy cập cho giảng viên
 - [x] PWA manifest/icons + service worker cache shell/menu for offline browsing (checkout still requires network)
 - [x] Manual viewport smoke ở 360/390/414 px; không tràn ngang
-- [x] Automated browser E2E wired into CI/CD workflows; GitHub CI run #9 passed. CD run #4 attempt 4 accepted the correct Vercel project ID, but Vercel deployment failed because its configured root directory was applied twice; the Render rollback API returned HTTP 500. Root-directory fix is pending CI/CD verification.
+- [x] Automated browser E2E wired into CI/CD workflows; GitHub CI run #9 passed. CD run #4 attempt 4 accepted the correct Vercel project ID, but Vercel deployment failed because its configured root directory was applied twice; the Render rollback API returned HTTP 500. PR #10 CI passed; production CD verification is pending merge and rerun.
 - [x] Regenerated SVG previews for PlantUML sources
 ## Minh chứng (Evidence)
 
