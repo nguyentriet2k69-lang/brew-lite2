@@ -176,7 +176,6 @@ jobs:
             --retry-delay 3 --max-time 15 "$API_URL/products" > /dev/null
       - name: Deploy web to Vercel
         id: deploy-web
-        working-directory: apps/web
         run: |
           set -euo pipefail
           mkdir -p .vercel
@@ -210,7 +209,7 @@ jobs:
           rollback_failed=0
 
           if [[ "$VERCEL_DEPLOY_SUCCEEDED" == "true" ]]; then
-            if ! (cd apps/web && npx --yes vercel@65.16.0 rollback --non-interactive --token "$VERCEL_TOKEN"); then
+            if ! npx --yes vercel@65.16.0 rollback --non-interactive --token "$VERCEL_TOKEN"; then
               echo "::error::Vercel rollback failed; restore the previous production deployment from the Vercel dashboard."
               rollback_failed=1
             fi
@@ -228,17 +227,19 @@ jobs:
               echo "::error::No previous Render deployment ID is available for rollback."
               rollback_failed=1
             else
-              rollback="$(curl --fail-with-body --silent --show-error --request POST \
+              response_file="$(mktemp)"
+              trap 'rm -f "$response_file"' EXIT
+              rollback_status="$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' --request POST \
                 -H "Authorization: Bearer $RENDER_API_KEY" \
                 -H "Content-Type: application/json" \
                 --data "{\"deployId\":\"$PREVIOUS_RENDER_DEPLOY_ID\"}" \
                 "https://api.render.com/v1/services/$RENDER_SERVICE_ID/rollback")" || {
-                  echo "::error::Render rollback request failed."
+                  echo "::error::Could not reach the Render rollback API; restore the previous deployment from the Render dashboard."
                   rollback_failed=1
-                  rollback=''
+                  rollback_status=''
                 }
-              if [[ -n "$rollback" ]]; then
-                rollback_id="$(jq -er '.id' <<< "$rollback")" || {
+              if [[ "$rollback_status" == "201" ]]; then
+                rollback_id="$(jq -er '.id // empty' "$response_file")" || {
                   echo "::error::Render rollback response did not contain a deployment ID."
                   rollback_failed=1
                   rollback_id=''
@@ -264,6 +265,10 @@ jobs:
                     rollback_failed=1
                   fi
                 fi
+              elif [[ -n "$rollback_status" ]]; then
+                error_message="$(jq -r '.message // .error // empty' "$response_file" 2>/dev/null | tr -d '\r\n' | head -c 500 || true)"
+                echo "::error::Render rollback API returned HTTP $rollback_status. ${error_message:-No error details were returned; restore the previous deployment from the Render dashboard.}"
+                rollback_failed=1
               fi
             fi
           else
