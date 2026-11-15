@@ -4,7 +4,6 @@ export declare class ProductsService {
     private productsRepository;
     constructor(productsRepository: Repository<Product>);
     findAll(): Promise<Product[]>;
-    findById(id: string): Promise<Product>;
     create(product: Partial<Product>): Promise<Product>;
     remove(id: string): Promise<void>;
     update(id: string, product: Partial<Product>): Promise<Product | null>;
