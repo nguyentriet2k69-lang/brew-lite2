@@ -10,9 +10,10 @@
 | Production database | Render PostgreSQL managed service; API kết nối bằng internal database URL |
 | CI/CD | GitHub Actions chạy test/build; Render API triển khai backend, Vercel CLI triển khai frontend |
 
-Production URLs do nhóm cung cấp:
+Production URLs hiện đang sử dụng:
 
-- Web: <https://brew-lite2-17cf.vercel.app/>
+- Web chính: <https://brew-lite2-9bg7.vercel.app/>
+- Web alias cũ: <https://brew-lite2-17cf.vercel.app/>
 - API: <https://brew-lite2-backend.onrender.com>
 - Health: <https://brew-lite2-backend.onrender.com/health>
 
@@ -38,7 +39,7 @@ Compose/Caddy/GHCR/SSH không còn là production topology. Các cấu hình Ubu
   - `DATABASE_URL`: internal URL của Render PostgreSQL.
   - `JWT_SECRET`: giá trị sinh riêng, tối thiểu 32 bytes.
   - `JWT_EXPIRES_IN`: ví dụ `1d`.
-  - `CORS_ORIGIN`: chính xác `https://brew-lite2-17cf.vercel.app`.
+  - `CORS_ORIGIN`: comma-separated exact origins `https://brew-lite2-9bg7.vercel.app,https://brew-lite2-17cf.vercel.app`.
   - `MOCK_PAYMENT_RESULT=success`, `MOCK_PAYMENT_TIMEOUT=false` cho demo happy path.
   - `NODE_ENV=production` nếu service chưa tự đặt.
 - Tắt Render auto-deploy theo commit. Workflow gửi đúng commit SHA qua Render API; bật auto-deploy đồng thời có thể gây deploy trùng hoặc đưa code mới trở lại sau rollback.
@@ -46,7 +47,7 @@ Compose/Caddy/GHCR/SSH không còn là production topology. Các cấu hình Ubu
 ### Vercel Web Project
 
 - Root Directory: `apps/web`; framework: Next.js.
-- Production environment variable `NEXT_PUBLIC_API_URL=https://brew-lite2-backend.onrender.com`. Biến này được dùng trong bundle public, không đặt credential nào trong đó.
+- Production environment variable `NEXT_PUBLIC_API_URL=https://brew-lite2-backend.onrender.com`. Biến này được dùng trong bundle public, không đặt credential nào trong đó. Frontend cũng dự phòng API production nếu biến bị thiếu hoặc vẫn trỏ tới `localhost:3001`.
 - Production domain phải trỏ đúng về project đang triển khai. Production deploy phải do CD workflow điều phối, không để Git integration tạo production deploy trùng; preview deployments có thể tiếp tục dùng theo chính sách nhóm.
 - Xác minh `/manifest.webmanifest` trên production sau khi deploy. URL hiện tại trả 404 trong lần kiểm tra cuối.
 
@@ -96,8 +97,9 @@ Tham khảo hướng dẫn chính thức: [Vercel CLI deploy](https://vercel.com
 
 Ngày 2026-11-15:
 
-- Render's manually triggered deployment of merge commit `a4d08ae` completed with Node.js 24.22.1. The Start Command ran migrations and the idempotent demo seed before starting the API. Verification returned HTTP 200 from `/health` with the database connected and HTTP 200 from `/products` with 9 products.
-- Vercel URL `https://brew-lite2-17cf.vercel.app` returned HTTP 200 for `/`, `/manifest.webmanifest`, and `/icon-192.svg`.
-- GitHub Actions CI on `main` passed. The CD run on `main` failed API unit tests because that revision still used Node 22, so deployment was skipped. A Node 24 CD fix is on branch `fix/cd-verify-node24`; its post-fix workflow run has not yet been verified.
+- Render `/health` returns HTTP 200 with the database connected; `/products` returns HTTP 200 with 9 products.
+- The frontend at `https://brew-lite2-9bg7.vercel.app` was found calling `http://localhost:3001`, which caused its menu fetch to fail. Render CORS now allows both this domain and the previous `https://brew-lite2-17cf.vercel.app` alias.
+- Deploy the frontend change that falls back to the production API when `NEXT_PUBLIC_API_URL` is missing or incorrectly points to `localhost:3001`. Verify the menu in a fresh browser session after deploy.
+- GitHub Actions CD on `main` previously failed API unit tests because that revision still used Node 22; deployment was skipped. The Node 24 fix remains on branch `fix/cd-verify-node24` pending a passing workflow run.
 
-Do not consider the production release complete until the Node 24 CD workflow passes and its deployment smoke tests verify API health, the seeded catalog, web manifest, CORS, and checkout.
+Do not consider the frontend recovery complete until the new bundle fetches products from Render and the production menu displays the catalog.
