@@ -82,7 +82,19 @@ interface PaymentResult {
 
 type View = 'menu' | 'cart' | 'auth' | 'history' | 'confirmation';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL;
+const productionApiUrl = 'https://brew-lite2-backend.onrender.com';
+const usesLocalProductionApi =
+  process.env.NODE_ENV === 'production' &&
+  /^https?:\/\/(localhost|127\.0\.0\.1):3001(?:\/|$)/i.test(
+    configuredApiUrl ?? '',
+  );
+const API_URL =
+  configuredApiUrl && !usesLocalProductionApi
+    ? configuredApiUrl
+    : process.env.NODE_ENV === 'production'
+      ? productionApiUrl
+      : 'http://localhost:3001';
 const CART_STORAGE_KEY = 'brewlite-cart-v1';
 const TOKEN_STORAGE_KEY = 'brewlite-access-token';
 const cartListeners = new Set<() => void>();

@@ -8,9 +8,10 @@ Web app mobile-first/PWA cho phép khách hàng xem menu, chọn size/topping, q
 
 | Mục | Liên kết |
 |:--|:--|
-| Frontend (URL nhóm cung cấp) | [https://brew-lite2-17cf.vercel.app/](https://brew-lite2-17cf.vercel.app/) — HTTP 200 trong lần kiểm tra 2026-11-15 |
-| API (URL nhóm cung cấp) | [https://brew-lite2-backend.onrender.com](https://brew-lite2-backend.onrender.com) — health/products timeout ở lần kiểm tra gần nhất; chưa xác nhận healthy |
-| Health check | [https://brew-lite2-backend.onrender.com/health](https://brew-lite2-backend.onrender.com/health) — timeout trong lần kiểm tra 2026-11-15 |
+| Frontend (URL production hiện tại) | [https://brew-lite2-9bg7.vercel.app/](https://brew-lite2-9bg7.vercel.app/) |
+| Frontend (alias cũ) | [https://brew-lite2-17cf.vercel.app/](https://brew-lite2-17cf.vercel.app/) |
+| API | [https://brew-lite2-backend.onrender.com](https://brew-lite2-backend.onrender.com) — HTTP 200 |
+| Health check | [https://brew-lite2-backend.onrender.com/health](https://brew-lite2-backend.onrender.com/health) — database connected |
 | Video demo | [Bản demo checkout local (WebM)](docs/evidence/brewlite-checkout-demo.webm) — API dùng test double, không phải production |
 | Release notes | `docs/release-notes.md` |
 | Sprint retrospective | `docs/sprint-retrospective.md` — dự kiến 2026-11-16; pre-read của nhóm, cần xác nhận sau buổi họp |
@@ -180,7 +181,7 @@ Test API nằm trong `apps/api/src/**/*.spec.ts` và `apps/api/test/`; Playwrigh
 
 - **CI** (`.github/workflows/ci.yml`): chạy khi mở/cập nhật PR: Install → Lint → Unit + PostgreSQL integration/API E2E → Build → Chromium browser E2E. Cần bật branch protection và required checks `API`, `Web` trong GitHub Settings.
 - **CD** (`.github/workflows/cd.yml`): sau verify, deploy đúng commit SHA lên Render, chờ live + API smoke, deploy web production qua Vercel CLI, rồi kiểm tra HTTPS và CORS preflight. Smoke fail sẽ rollback Vercel (nếu đã deploy) và Render API về deployment trước. Cần cấu hình GitHub Environment variables/secrets và provider services theo [runbook](docs/deployment.md); workflow production chưa được chạy.
-- Production architecture đã thống nhất là Vercel + Render; Compose chỉ dùng local/testing. Lần kiểm tra gần nhất: web root HTTP 200, manifest/icons trả 404; API health/products timeout và chưa xác nhận healthy. GitHub Actions API hiện chưa liệt kê workflow trên nhánh mặc định; các thay đổi đang chờ review/merge nên chưa có CI/CD production run. Chi tiết ở [release notes](docs/release-notes.md).
+- Production architecture đã thống nhất là Vercel + Render; Compose chỉ dùng local/testing. Render `/products` trả 9 sản phẩm; cả hai frontend URL ở trên đã được redeploy với API URL đúng và trình duyệt hiển thị đủ 9 món.
 
 ## Triển khai và Rollback
 
