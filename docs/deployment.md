@@ -98,8 +98,9 @@ Tham khảo hướng dẫn chính thức: [Vercel CLI deploy](https://vercel.com
 Ngày 2026-11-15:
 
 - Render `/health` returns HTTP 200 with the database connected; `/products` returns HTTP 200 with 9 products.
-- The frontend at `https://brew-lite2-9bg7.vercel.app` was found calling `http://localhost:3001`, which caused its menu fetch to fail. Render CORS now allows both this domain and the previous `https://brew-lite2-17cf.vercel.app` alias.
-- Deploy the frontend change that falls back to the production API when `NEXT_PUBLIC_API_URL` is missing or incorrectly points to `localhost:3001`. Verify the menu in a fresh browser session after deploy.
+- The frontend at `https://brew-lite2-9bg7.vercel.app` was found calling `http://localhost:3001`, which caused its menu fetch to fail. `NEXT_PUBLIC_API_URL=https://brew-lite2-backend.onrender.com` is now configured in production for this project and the `https://brew-lite2-17cf.vercel.app` alias; both were redeployed.
+- Browser smoke tests now show 9 product cards on both domains with no failed requests. Render CORS preflight allows both exact origins.
+- A code fallback for missing or incorrect production `localhost:3001` configuration is on `fix/cd-verify-node24` and awaits review/merge; the environment variable above keeps the current production deployments working in the meantime.
 - GitHub Actions CD on `main` previously failed API unit tests because that revision still used Node 22; deployment was skipped. The Node 24 fix remains on branch `fix/cd-verify-node24` pending a passing workflow run.
 
 Do not consider the frontend recovery complete until the new bundle fetches products from Render and the production menu displays the catalog.

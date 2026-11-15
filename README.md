@@ -181,7 +181,7 @@ Test API nằm trong `apps/api/src/**/*.spec.ts` và `apps/api/test/`; Playwrigh
 
 - **CI** (`.github/workflows/ci.yml`): chạy khi mở/cập nhật PR: Install → Lint → Unit + PostgreSQL integration/API E2E → Build → Chromium browser E2E. Cần bật branch protection và required checks `API`, `Web` trong GitHub Settings.
 - **CD** (`.github/workflows/cd.yml`): sau verify, deploy đúng commit SHA lên Render, chờ live + API smoke, deploy web production qua Vercel CLI, rồi kiểm tra HTTPS và CORS preflight. Smoke fail sẽ rollback Vercel (nếu đã deploy) và Render API về deployment trước. Cần cấu hình GitHub Environment variables/secrets và provider services theo [runbook](docs/deployment.md); workflow production chưa được chạy.
-- Production architecture đã thống nhất là Vercel + Render; Compose chỉ dùng local/testing. `/products` hiện trả 9 sản phẩm và cả hai frontend URL ở trên trả HTTP 200. Cần deploy bản frontend có fallback API production trước khi coi menu online đã được khôi phục.
+- Production architecture đã thống nhất là Vercel + Render; Compose chỉ dùng local/testing. Render `/products` trả 9 sản phẩm; cả hai frontend URL ở trên đã được redeploy với API URL đúng và trình duyệt hiển thị đủ 9 món.
 
 ## Triển khai và Rollback
 
