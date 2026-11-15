@@ -49,7 +49,7 @@ Compose/Caddy/GHCR/SSH không còn là production topology. Các cấu hình Ubu
 - Root Directory: `apps/web`; framework: Next.js.
 - Production environment variable `NEXT_PUBLIC_API_URL=https://brew-lite2-backend.onrender.com`. Biến này được dùng trong bundle public, không đặt credential nào trong đó. Frontend cũng dự phòng API production nếu biến bị thiếu hoặc vẫn trỏ tới `localhost:3001`.
 - Production domain phải trỏ đúng về project đang triển khai. Production deploy phải do CD workflow điều phối, không để Git integration tạo production deploy trùng; preview deployments có thể tiếp tục dùng theo chính sách nhóm.
-- Xác minh `/manifest.webmanifest` trên production sau khi deploy. URL hiện tại trả 404 trong lần kiểm tra cuối.
+- Xác minh `/manifest.webmanifest` và icons sau khi deploy. Kiểm tra ngày 2026-11-15 xác nhận cả hai Vercel domains trả HTTP 200 cho root, manifest, `/icon-192.svg` và `/icon-512.svg`.
 
 ### GitHub Actions Environment `production`
 
@@ -58,10 +58,10 @@ Tạo Environment `production`; bật required reviewers nếu phù hợp. Thêm
 | Variable | Giá trị |
 |---|---|
 | `API_URL` | `https://brew-lite2-backend.onrender.com` |
-| `WEB_URL` | `https://brew-lite2-17cf.vercel.app` |
-| `RENDER_SERVICE_ID` | ID của Render API Web Service, dạng `srv-...` |
-| `VERCEL_ORG_ID` | Vercel team/org ID |
-| `VERCEL_PROJECT_ID` | Vercel project ID cho web |
+| `WEB_URL` | `https://brew-lite2-9bg7.vercel.app` |
+| `RENDER_SERVICE_ID` | `srv-dbs94fjl550s73fqrqs0` (Render dashboard service `brew-lite2-backend`; verify before saving) |
+| `VERCEL_ORG_ID` | Vercel account hoặc team ID sở hữu project |
+| `VERCEL_PROJECT_ID` | `prj_RZiZ1V47fQ0tYKsQbHrImw4xLfkU` — project `brew-lite2-9bg7`, xác nhận trong Vercel Project Settings; không dùng ID của alias `brew-lite2-17cf` |
 
 Thêm các **Secrets**:
 
@@ -70,7 +70,7 @@ Thêm các **Secrets**:
 | `RENDER_API_KEY` | Đọc deployment hiện tại, deploy commit, và rollback Render service |
 | `VERCEL_TOKEN` | Deploy/rollback đúng Vercel project/team |
 
-Không gửi secrets qua chat, không in ra workflow logs và không commit `.env` thật. Các lệnh workflow fail rõ ràng khi thiếu biến/secrets.
+Không gửi secrets qua chat, không in ra workflow logs và không commit `.env` thật. Workflow kiểm tra `VERCEL_PROJECT_ID` có dạng `prj_...` trước khi deploy Render. Trong lệnh Vercel CLI không truyền `--scope`: `VERCEL_ORG_ID` chỉ được ghi vào `.vercel/project.json`, nhờ đó tránh dùng Personal Account ID như một scope CLI.
 
 ## Quy trình CI/CD
 
@@ -82,7 +82,7 @@ Không gửi secrets qua chat, không in ra workflow logs và không commit `.en
 4. Dùng Vercel CLI deploy production từ `apps/web`, sau đó smoke-test trang web, manifest, API health, products và CORS preflight.
 5. Nếu lỗi sau khi Render đã nhận deploy, workflow khôi phục Vercel deployment (nếu đã deploy) và Render deployment trước đó. Cơ sở dữ liệu/migration không tự rollback; migration phải backward-compatible.
 
-Workflow chạy khi push `main`, tag `v*`, hoặc dispatch thủ công từ `main`/tag `v*`. Deploy bị serialize để tránh hai release production chạy đồng thời. GitHub Environment, provider IDs/tokens, Render service configuration và domain settings chưa được kiểm chứng từ repository; cần cấu hình an toàn trước lần chạy đầu.
+Workflow chạy khi push `main`, tag `v*`, hoặc dispatch thủ công từ `main`/tag `v*`. Deploy bị serialize để tránh hai release production chạy đồng thời. CI run #9 trên `main` đã pass. CD run #3, attempt 7 ngày 2026-11-15: Verify pass; Render deployment và API smoke pass; Vercel deploy fail với `You cannot set your Personal Account as the scope`; rollback job pass. Variables đã có mặt nhưng `VERCEL_PROJECT_ID` cần là project ID `prj_...`, không phải account/team ID. Project Settings xác nhận ID của web chính `brew-lite2-9bg7` là `prj_RZiZ1V47fQ0tYKsQbHrImw4xLfkU`; ID alias `brew-lite2-17cf` khác. Workflow hiện bỏ `--scope` khỏi deploy/rollback và validate định dạng project ID trước khi gọi provider. Automated production release chỉ được xác nhận sau khi GitHub Environment dùng đúng ID và CD mới pass public HTTPS/CORS smoke tests.
 
 Tham khảo hướng dẫn chính thức: [Vercel CLI deploy](https://vercel.com/docs/cli/deploying-from-cli), [Vercel rollback](https://vercel.com/docs/cli/rollback), [Render deploys](https://render.com/docs/deploys), [Render deploy API](https://api-docs.render.com/reference/create-deploy), [Render rollback API](https://api-docs.render.com/reference/rollback-deploy).
 
@@ -97,10 +97,10 @@ Tham khảo hướng dẫn chính thức: [Vercel CLI deploy](https://vercel.com
 
 Ngày 2026-11-15:
 
-- Render `/health` returns HTTP 200 with the database connected; `/products` returns HTTP 200 with 9 products.
-- The frontend at `https://brew-lite2-9bg7.vercel.app` was found calling `http://localhost:3001`, which caused its menu fetch to fail. `NEXT_PUBLIC_API_URL=https://brew-lite2-backend.onrender.com` is now configured in production for this project and the `https://brew-lite2-17cf.vercel.app` alias; both were redeployed.
-- Browser smoke tests now show 9 product cards on both domains with no failed requests. Render CORS preflight allows both exact origins.
-- A code fallback for missing or incorrect production `localhost:3001` configuration is on `fix/cd-verify-node24` and awaits review/merge; the environment variable above keeps the current production deployments working in the meantime.
-- GitHub Actions CD on `main` previously failed API unit tests because that revision still used Node 22; deployment was skipped. The Node 24 fix remains on branch `fix/cd-verify-node24` pending a passing workflow run.
+- Production `GET /health` returned HTTP 200 with `database: connected`; `GET /products` returned HTTP 200 with 9 products.
+- Both Vercel domains returned HTTP 200 for `/`, `/manifest.webmanifest`, `/icon-192.svg` and `/icon-512.svg`. Browser smoke on the alias displayed all 9 product cards.
+- CORS preflight to `POST /orders` returned HTTP 204 and the exact `Access-Control-Allow-Origin` for both Vercel domains, with authorization/content-type/idempotency-key allowed.
+- The production `NEXT_PUBLIC_API_URL` configuration and fallback are live; PR #8 is merged. Production checkout was not exercised to avoid creating test orders in the live database.
+- GitHub Actions CI run #9 on `main` passed. CD run #3 passed verification but deployment was skipped because the `production` Environment is missing `API_URL`, `WEB_URL`, `RENDER_SERVICE_ID`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID`. The workflow has not yet verified provider deployment or rollback.
 
-Do not consider the frontend recovery complete until the new bundle fetches products from Render and the production menu displays the catalog.
+Render's production migration history, managed-database backup/restore and real rollback behavior remain unverified. Do not treat successful public health/catalog smoke tests as proof of end-to-end production checkout.

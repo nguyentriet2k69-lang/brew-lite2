@@ -25,7 +25,7 @@ The notes below were supplied by the team as pre-read material. They are not rec
 - Prepared SRS, UC-05, UML/architecture/deployment diagrams, traceability matrix, and MVP UI evidence.
 - Followed the reported Git flow of feature branches, reviewed pull requests, and `main`.
 
-The live production URLs still need re-validation: the Vercel root responds, but the manifest/icons returned 404; Render health/products timed out during the 2026-11-15 checks.
+Production health/catalog/CORS and both Vercel domains' root/manifest/icons were smoke-tested successfully on 2026-11-15. CD run #3 attempt 7 deployed Render and passed API smoke, then Vercel deployment failed because the workflow passed a Personal Account ID as CLI `--scope`; rollback job passed. A workflow fix and correct Vercel project ID are needed before the production release is verified. Production checkout and database backup/restore are still unverified.
 
 ## What was difficult — team pre-read
 
@@ -41,8 +41,8 @@ The live production URLs still need re-validation: the Vercel root responds, but
 
 | Action | Owner (as supplied) | Due date | Status / verification |
 |---|---|---|---|
-| Final checklist review; update README production URLs and member details | `@nguyentriet2k69-lang` (TV1) | 2026-11-15 | Reported Done; README updated. Production URLs still need successful health/manifest verification. |
-| Run regression tests and smoke-test the deployed release | `@NguUyeenx` and `@duongskibidi-code` (TV4, TV6, as supplied) | 2026-11-15 | Reported Done; the latest external probes in this audit did not confirm production health. |
+| Final checklist review; update README production URLs and member details | `@nguyentriet2k69-lang` (TV1) | 2026-11-15 | Reported Done; README updated. Production health, catalog, manifest/icons and CORS were verified on 2026-11-15; CD attempt 7 exposed the Vercel scope failure, with rollback successful. |
+| Run regression tests and smoke-test the deployed release | `@NguUyeenx` and `@duongskibidi-code` (TV4, TV6, as supplied) | 2026-11-15 | Local regression suites pass; production API/web/CORS smoke passes. Production checkout was not exercised. |
 | Publish release notes, record an end-to-end demo, and hand repository access to the instructor | `@hoa-tuong` and `@tienanh13-02` (TV2, TV3, TV5, as supplied) | 2026-11-16 | Reported Done; a local WebM demo is available at [brewlite-checkout-demo.webm](./evidence/brewlite-checkout-demo.webm). Instructor access was not verified here. |
 
 Finalize these notes after the 2026-11-16 meeting; record any agreed changes, owners, and dates then.
