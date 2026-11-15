@@ -116,8 +116,12 @@ jobs:
             echo "::error::RENDER_SERVICE_ID must be a Render service ID."
             exit 1
           fi
-          if [[ ! "$VERCEL_ORG_ID" =~ ^[A-Za-z0-9_-]+$ || ! "$VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
-            echo "::error::VERCEL_ORG_ID and VERCEL_PROJECT_ID contain invalid characters."
+          if [[ ! "$VERCEL_ORG_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
+            echo "::error::VERCEL_ORG_ID must be the Vercel account or team ID that owns the project."
+            exit 1
+          fi
+          if [[ ! "$VERCEL_PROJECT_ID" =~ ^prj_[A-Za-z0-9]+$ ]]; then
+            echo "::error::VERCEL_PROJECT_ID must be the Vercel project ID (prj_...), not an account or team ID."
             exit 1
           fi
       - name: Capture current Render release
@@ -177,7 +181,7 @@ jobs:
           set -euo pipefail
           mkdir -p .vercel
           printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
-          npx --yes vercel@65.16.0 deploy --prod --yes --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID"
+          npx --yes vercel@65.16.0 deploy --prod --yes --token "$VERCEL_TOKEN"
       - name: Public HTTPS smoke test
         run: |
           set -euo pipefail
@@ -206,7 +210,7 @@ jobs:
           rollback_failed=0
 
           if [[ "$VERCEL_DEPLOY_SUCCEEDED" == "true" ]]; then
-            if ! (cd apps/web && npx --yes vercel@65.16.0 rollback --non-interactive --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID"); then
+            if ! (cd apps/web && npx --yes vercel@65.16.0 rollback --non-interactive --token "$VERCEL_TOKEN"); then
               echo "::error::Vercel rollback failed; restore the previous production deployment from the Vercel dashboard."
               rollback_failed=1
             fi

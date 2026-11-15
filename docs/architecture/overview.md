@@ -1,6 +1,6 @@
 # Kiến trúc BrewLite
 
-Tài liệu mô tả kiến trúc BrewLite theo SRS và các sơ đồ UML. Repository hiện có Next.js tại `apps/web`, NestJS tại `apps/api`, PostgreSQL, TypeORM migrations và CI/CD GitHub Actions. Production target là Vercel (web), Render Web Service (API) và Render PostgreSQL managed; Docker Compose chỉ dùng local/testing. Workflow CD triển khai qua Render API và Vercel CLI; provider settings/credentials chưa được xác minh trong môi trường này. Xem [deployment runbook](../deployment.md).
+Tài liệu mô tả kiến trúc BrewLite theo SRS và các sơ đồ UML. Repository hiện có Next.js tại `apps/web`, NestJS tại `apps/api`, PostgreSQL, TypeORM migrations và CI/CD GitHub Actions. Production target là Vercel (web), Render Web Service (API) và Render PostgreSQL managed; Docker Compose chỉ dùng local/testing. Production API/web/CORS smoke tests pass. CD run #3 attempt 7 deployed Render and passed API smoke, then failed at Vercel because a Personal Account ID was passed as CLI `--scope`; rollback job passed. Workflow fix and a new successful production release are pending. Xem [deployment runbook](../deployment.md).
 
 ## 1. Mục tiêu và phạm vi
 
@@ -19,8 +19,8 @@ Microservices làm tăng yêu cầu giao tiếp, quan sát và nhất quán dữ
 | Thành phần | Trách nhiệm | Ranh giới |
 |---|---|---|
 | Trình duyệt khách hàng | Hiển thị menu, giỏ, auth, checkout, confirmation, history | Dữ liệu UI không quyết định giá cuối/kết quả thanh toán |
-| `apps/web` — Next.js / Vercel | Mobile-first UI; cart lưu local, auth token lưu session; gọi Nest API | Có manifest/icons, service worker cache shell/public catalog và Playwright browser E2E; production hiện trả 404 cho manifest/icons |
-| `apps/api` — NestJS / Render | Xác thực, validation, giá, đơn, tồn kho, payment, lịch sử | Quyết định nghiệp vụ và quyền truy cập; production health chưa xác minh |
+| `apps/web` — Next.js / Vercel | Mobile-first UI; cart lưu local, auth token lưu session; gọi Nest API | Có manifest/icons, service worker cache shell/public catalog và Playwright browser E2E; hai production domains trả HTTP 200 cho root/manifest/icons trong smoke test 2026-11-15 |
+| `apps/api` — NestJS / Render | Xác thực, validation, giá, đơn, tồn kho, payment, lịch sử | Quyết định nghiệp vụ và quyền truy cập; production `/health` trả HTTP 200, database connected |
 | PostgreSQL / Render | Lưu dữ liệu domain, ràng buộc, transaction | Render managed database; API dùng internal URL, browser không kết nối trực tiếp |
 | Payment mock trong API | Giả lập success/fail qua interface riêng | Lifeline Payment trong UML không tự động có nghĩa là một service triển khai riêng |
 
@@ -47,7 +47,7 @@ Hai request HTTP tạo đơn và thanh toán không nằm trong một transactio
 - FR-09: transaction và giảm tồn kho có điều kiện; test hai request cạnh tranh lượng tồn cuối.
 - NFR-01: mục tiêu API menu dưới 500 ms và UI dưới 2 giây cần đo theo điều kiện SRS, chưa có kết quả đo trong repo này.
 - NFR-03: UI mobile-first, manifest/icons và offline cache cho shell/menu đã có; manual viewport smoke tại 360/390/414 px và Playwright offline test pass. Checkout cần mạng; PWA trên thiết bị thật chưa xác minh.
-- NFR-04–06: local Docker Compose, migration/seed, health và provider CD configuration có; production workflow, Render database backups/restore và live API health chưa được kiểm chứng.
+- NFR-04–06: local Docker Compose, migration/seed, health và provider CD workflow có; production API/web/CORS smoke pass. CD run #3 attempt 7 deployed Render and passed API smoke but failed at Vercel scope configuration; rollback job passed. Production migration history và Render database backup/restore chưa được kiểm chứng.
 - NFR-07: API unit, PostgreSQL integration, API E2E và browser E2E từ menu đến xác nhận đã chạy pass locally.
 
 ## 7. Truy vết thiết kế
@@ -64,11 +64,11 @@ Hai request HTTP tạo đơn và thanh toán không nằm trong một transactio
 
 | Gap còn lại | Tác động / việc cần làm |
 |---|---|
-| GitHub workflows chưa chạy từ repository hiện tại | GitHub Actions API reports no workflows; các workflow mới cần được commit/push trước khi verify CI và production CD. |
+| Production CD chưa hoàn tất | GitHub CI run #9 trên `main` pass; CD run #3 attempt 7 Verify/Render/API smoke pass, Vercel deploy fail do truyền Personal Account ID vào `--scope`, rollback job pass. Workflow bỏ scope và kiểm tra `prj_...`; cần đúng project ID của web chính cùng một lần CD xanh. |
 | Web lưu JWT trong sessionStorage, chưa có CSP/XSS hardening | Rà soát trước production; cân nhắc cookie HttpOnly/SameSite và CSRF nếu frontend/API contract hỗ trợ. |
 | Offline checkout không hỗ trợ | Service worker chỉ cache shell/static và public catalog/pricing; không cache token, đơn hàng hay thanh toán. |
 | FR-08 chỉ có trạng thái payment/order hiện hành; staff transitions chưa triển khai | Xác nhận giữ UC-07 ngoài MVP hay bổ sung staff workflow; SRS hiện ghi Should. |
 | Promotion/Loyalty mới là lớp mô hình yêu cầu, chưa có implementation | FR-10 là Could; không mô tả là chức năng đã có. |
-| GitHub production Environment, provider IDs/secrets, Render migrations/backups chưa được xác minh | Chưa thể xác minh CD, rollback hay production checkout; xem [deployment runbook](../deployment.md). |
+| Cấu hình Vercel project ID còn cần xác nhận; Render migrations/backups chưa được xác minh | Chưa thể xác nhận production CD thành công hoặc production checkout; xem [deployment runbook](../deployment.md). |
 
-Production web manifest/icons và API health chưa được xác minh; các tài liệu liên quan: [Sequence](../diagrams/sequence-checkout.puml), [Class](../diagrams/class-domain.puml), [Activity](../diagrams/activity-order-to-payment.puml), [Deployment](../diagrams/deployment.svg), [Thiết kế triển khai](../deployment.md).
+Production web manifest/icons, API health/catalog và CORS đã được smoke-test ngày 2026-11-15. Production checkout, automated rollback, backup/restore và PWA trên thiết bị thật vẫn chưa được xác minh; xem [deployment runbook](../deployment.md). Tài liệu sơ đồ: [Sequence](../diagrams/sequence-checkout.puml), [Class](../diagrams/class-domain.puml), [Activity](../diagrams/activity-order-to-payment.puml), [Deployment](../diagrams/deployment.svg).

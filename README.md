@@ -10,8 +10,8 @@ Web app mobile-first/PWA cho phép khách hàng xem menu, chọn size/topping, q
 |:--|:--|
 | Frontend (URL production hiện tại) | [https://brew-lite2-9bg7.vercel.app/](https://brew-lite2-9bg7.vercel.app/) |
 | Frontend (alias cũ) | [https://brew-lite2-17cf.vercel.app/](https://brew-lite2-17cf.vercel.app/) |
-| API | [https://brew-lite2-backend.onrender.com](https://brew-lite2-backend.onrender.com) — HTTP 200 |
-| Health check | [https://brew-lite2-backend.onrender.com/health](https://brew-lite2-backend.onrender.com/health) — database connected |
+| API | [https://brew-lite2-backend.onrender.com](https://brew-lite2-backend.onrender.com) — `GET /products` returned 9 products (2026-11-15) |
+| Health check | [https://brew-lite2-backend.onrender.com/health](https://brew-lite2-backend.onrender.com/health) — HTTP 200, database connected (2026-11-15) |
 | Video demo | [Bản demo checkout local (WebM)](docs/evidence/brewlite-checkout-demo.webm) — API dùng test double, không phải production |
 | Release notes | `docs/release-notes.md` |
 | Sprint retrospective | `docs/sprint-retrospective.md` — dự kiến 2026-11-16; pre-read của nhóm, cần xác nhận sau buổi họp |
@@ -146,15 +146,14 @@ Chỉ commit `.env.example`; **không** commit `.env` hoặc secret thật.
 # Run from repository root
 docker compose -p brew-lite2-test -f docker-compose.test.yml up -d --wait
 
-# Unit + PostgreSQL spec (TEST_DATABASE_URL cần cho các integration spec)
-$env:TEST_DATABASE_URL = 'postgresql://brewlite_test@127.0.0.1:5433/brewlite_test'
+# Unit tests (run like CI, without TEST_DATABASE_URL)
+Remove-Item Env:TEST_DATABASE_URL -ErrorAction SilentlyContinue
 Push-Location apps\api
 npm run test -- --runInBand
 
-# PostgreSQL integration test (lệnh suite riêng)
+# PostgreSQL integration + API E2E
+$env:TEST_DATABASE_URL = 'postgresql://brewlite_test@127.0.0.1:5433/brewlite_test'
 npm run test:integration
-
-# API E2E (đăng ký/đăng nhập -> đặt đơn -> xác nhận thanh toán)
 npm run test:e2e
 Remove-Item Env:TEST_DATABASE_URL
 Pop-Location
@@ -179,9 +178,9 @@ Test API nằm trong `apps/api/src/**/*.spec.ts` và `apps/api/test/`; Playwrigh
 
 ## CI/CD
 
-- **CI** (`.github/workflows/ci.yml`): chạy khi mở/cập nhật PR: Install → Lint → Unit + PostgreSQL integration/API E2E → Build → Chromium browser E2E. Cần bật branch protection và required checks `API`, `Web` trong GitHub Settings.
-- **CD** (`.github/workflows/cd.yml`): sau verify, deploy đúng commit SHA lên Render, chờ live + API smoke, deploy web production qua Vercel CLI, rồi kiểm tra HTTPS và CORS preflight. Smoke fail sẽ rollback Vercel (nếu đã deploy) và Render API về deployment trước. Cần cấu hình GitHub Environment variables/secrets và provider services theo [runbook](docs/deployment.md); workflow production chưa được chạy.
-- Production architecture đã thống nhất là Vercel + Render; Compose chỉ dùng local/testing. Render `/products` trả 9 sản phẩm; cả hai frontend URL ở trên đã được redeploy với API URL đúng và trình duyệt hiển thị đủ 9 món.
+- **CI** (`.github/workflows/ci.yml`): chạy khi mở/cập nhật PR: Install → Lint → Unit → PostgreSQL integration/API E2E → Build → Chromium browser E2E. [GitHub Actions run #9](https://github.com/nguyentriet2k69-lang/brew-lite2/actions/runs/43697256916) on `main` passed on 2026-11-15. Cần bật branch protection và required checks `API`, `Web` trong GitHub Settings.
+- **CD** (`.github/workflows/cd.yml`): sau verify, deploy đúng commit SHA lên Render, chờ live + API smoke, deploy web production qua Vercel CLI, rồi kiểm tra HTTPS và CORS preflight. [Run #3, attempt 7](https://github.com/nguyentriet2k69-lang/brew-lite2/actions/runs/43697256946) xác nhận Variables đã được nhận; Verify, Render deploy và API smoke pass, nhưng Vercel deploy fail vì workflow truyền Personal Account vào `--scope`. Job rollback chạy thành công. Workflow đã được sửa để bỏ `--scope` và validate `VERCEL_PROJECT_ID` là project ID `prj_...` trước khi deploy Render. Cần xác nhận GitHub Environment dùng đúng project ID của web chính `brew-lite2-9bg7` trước lần chạy CD tiếp theo.
+- Production architecture đã thống nhất là Vercel + Render; Compose chỉ dùng local/testing. The two Vercel domains and Render API are currently reachable: web root/manifest/icons and API health/products returned HTTP 200, and CORS preflight passed for both web origins on 2026-11-15. Production checkout has not been exercised.
 
 ## Triển khai và Rollback
 
@@ -242,20 +241,22 @@ Deploy production tự động qua GitHub Actions sau khi cấu hình GitHub Env
 - [x] API unit (126/126) + PostgreSQL integration (9/9) + API E2E (2/2) + browser E2E (2/2 local)
 - [x] `docker compose up --build --wait` local; API/Web/DB healthy và HTTP smoke pass
 - [x] Migration/seed trên PostgreSQL local Compose + `/health`
-- [x] CD workflow/configuration cho Vercel + Render; deployment live chưa được xác minh
-- [x] URL frontend HTTPS reachable (HTTP 200); manifest/icons hiện trả 404
-- [x] URL API HTTPS provided by the team
-- [ ] Production API health/CORS/checkout smoke
+- [x] CD workflow code/configuration cho Vercel + Render
+- [ ] Automated production release chưa hoàn tất: CD run #3 attempt 7 deploy Render/API smoke pass, Vercel lỗi scope; rollback job pass. Workflow fix đã chuẩn bị nhưng cần CI/PR và xác nhận đúng Vercel project ID trước khi chạy lại.
+- [x] Frontend HTTPS, manifest và icons trả HTTP 200 trên cả hai Vercel domains
+- [x] Production API health/products trả HTTP 200; products có 9 items
+- [x] Production CORS preflight cho hai web origins
+- [ ] Production checkout chưa chạy
 - [ ] Render PostgreSQL access, backup/restore và production migration đã xác minh
 - [x] Không thêm secret production vào repo; runtime secrets nằm ngoài Git
 - [x] Release notes + README + rollback
 - [x] Video demo checkout end-to-end (local, API test double; không có narration)
 - [ ] Sprint Review + Retrospective
-- [x] Ma trận truy vết phản ánh code/test hiện có và các gap còn lại
+- [x] Ma trận truy vết TV1 phản ánh FR/NFR → UC → thiết kế → Code/API → Test và các gap còn lại
 - [ ] Lịch sử Git rõ ràng + cấp quyền truy cập cho giảng viên
 - [x] PWA manifest/icons + service worker cache shell/menu for offline browsing (checkout still requires network)
 - [x] Manual viewport smoke ở 360/390/414 px; không tràn ngang
-- [x] Automated browser E2E wired into CI/CD workflows (GitHub workflow execution still pending push)
+- [x] Automated browser E2E wired into CI/CD workflows; GitHub CI run #9 passed. CD run #3 attempt 7 accepted configured Variables, but Vercel deployment failed on `--scope` and rollback ran; fix is pending verification.
 - [x] Regenerated SVG previews for PlantUML sources
 ## Minh chứng (Evidence)
 

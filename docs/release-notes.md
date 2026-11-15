@@ -17,22 +17,23 @@
 
 ### Verification recorded (2026-11-15)
 
-- API unit/Jest suite: **126/126 PASS**; explicit PostgreSQL integration suite: **9/9 PASS**; API E2E: **2/2 PASS**.
+- API unit/Jest suite with `TEST_DATABASE_URL`: **126/126 PASS**; CI-style unit run without DB: **117 PASS, 9 integration tests skipped**; explicit PostgreSQL integration suite: **9/9 PASS**; API E2E: **2/2 PASS**.
 - API lint/build and Web lint/build: **PASS**.
 - Playwright browser E2E: **2/2 PASS** (`npm run test:e2e` from `apps/web`); includes successful checkout/history and cached catalog after going offline.
 - PlantUML 1.2026.10 rendered all five `.puml` sources to checked-in SVG previews.
-- `docker compose --env-file .env.example up --build -d --wait --wait-timeout 240`: **PASS**; local DB, API and web healthy. Host port 5432 was already occupied, so local DB was mapped to 5434 for this run.
+- Local Compose audit run `docker compose --env-file .env.example -p brew-lite2-audit up --build --wait --wait-timeout 300 -d`: **PASS**; DB/API/Web healthy on host ports 5444/3111/3210. `/health`, `/products` (9 items), web root, manifest and icon returned HTTP 200.
 - The retired Ubuntu/Compose production template was configuration-checked earlier in the audit; it is no longer the selected platform and does not validate active Vercel/Render settings.
 - Local HTTP smoke: `/health`, `/products`, `/pricing/options`, `/`, `/manifest.webmanifest`, `/icon-192.svg`, `/icon-512.svg`: **HTTP 200**.
 - Manual browser smoke: select product/size/topping → cart → register → create order → mock payment → confirmation → history: **PASS**.
 - CI evidence: [`ci-local-success.txt`](./evidence/ci-local-success.txt) and historical first-run failure/fix: [`ci-local-failure.txt`](./evidence/ci-local-failure.txt).
 
-### Release blockers / limitations
+### Production verification and remaining blockers
 
-- The team supplied a Vercel frontend URL and a Render API URL. On 2026-11-15 the frontend root returned HTTP 200, while `/manifest.webmanifest`, `/icon-192.svg`, and `/icon-512.svg` returned HTTP 404. Render `/health` and `/products` timed out on 18-second probes; a prior health probe timed out after 75 seconds. API health, CORS and checkout are **not verified**.
-- GitHub Actions currently reports zero workflows on the default branch, and lookup of `cd.yml` returns 404. Workflow changes are awaiting branch review/merge; no remote CI/CD run occurred. The team reports production settings are ready after merge, but provider IDs/tokens, Render migration configuration, and Vercel settings cannot be independently verified from this workspace.
+- Production smoke on 2026-11-15: both Vercel domains returned HTTP 200 for root, manifest and 192/512 icons; the alias browser page displayed 9 products. Render `/health` returned HTTP 200 with database connected, `/products` returned 9 products, and CORS preflight passed for both exact origins.
+- [GitHub Actions CI run #9](https://github.com/nguyentriet2k69-lang/brew-lite2/actions/runs/43697256916) on `main` passed API/Web verification. [CD run #3, attempt 7](https://github.com/nguyentriet2k69-lang/brew-lite2/actions/runs/43697256946) accepted the configured Variables; Verify, Render deploy and API smoke passed. Vercel deploy failed because the workflow passed a Personal Account ID as `--scope`; the rollback job passed.
+- The workflow fix removes `--scope` from Vercel deploy/rollback and validates that `VERCEL_PROJECT_ID` is a `prj_...` ID before starting provider deployment. The correct project ID for the production web URL `brew-lite2-9bg7` and a successful new CD run are still required before automated production release is verified. Production checkout was not exercised to avoid creating orders in the live database.
 - Selected 360/390/414 px browser viewports had no horizontal overflow; this is not exhaustive device/browser coverage.
 - Docker Compose is verified for local/testing only; production provider rollout remains unverified.
 - Enable branch protection (`API`, `Web`) and configure the `production` Environment before relying on CI/CD.
 - Offline browsing serves the cached shell/catalog, but creating orders and payments still requires a live API connection.
-- Before accepting production traffic, verify API health/CORS, the Vercel manifest, Render managed-database backup/restore, and provider rollback on staging. Payments remain mock and do not process real funds.
+- Before relying on automated releases, confirm the `production` Environment contains the correct `prj_...` for the production web project and complete a controlled CD run. Verify Render managed-database backup/restore on staging. Payments remain mock and do not process real funds.
