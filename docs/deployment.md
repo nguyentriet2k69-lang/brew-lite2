@@ -31,9 +31,9 @@ Compose/Caddy/GHCR/SSH không còn là production topology. Các cấu hình Ubu
 - Connect the service to this GitHub repository and the `main` branch so the Render API can build a requested commit SHA.
 - Root Directory: `apps/api`
 - Build Command: `npm ci && npm run build`
-- Start Command: `npm run start:prod`
+- Start Command: `npm run start:prod:prepare` when the service plan does not support a Pre-Deploy Command.
 - Health Check Path: `/health`
-- Pre-Deploy Command: `npm run migration:run:prod` trên plan hỗ trợ pre-deploy command. Migration phải chạy trước khi rollout; nếu plan không hỗ trợ, cấu hình một migration job tương đương trước khi bật deploy tự động.
+- Pre-Deploy Command: the current Render plan does not support this setting. The Start Command above applies pending migrations, runs the idempotent demo seed, then starts NestJS. On a plan that supports Pre-Deploy Command, set it to `npm run migration:run:prod && npm run seed:prod` and use `npm run start:prod` as the Start Command instead.
 - Environment:
   - `DATABASE_URL`: internal URL của Render PostgreSQL.
   - `JWT_SECRET`: giá trị sinh riêng, tối thiểu 32 bytes.
@@ -96,8 +96,8 @@ Tham khảo hướng dẫn chính thức: [Vercel CLI deploy](https://vercel.com
 
 Ngày 2026-11-15:
 
-- Vercel web root trả HTTP 200; `/manifest.webmanifest` trả HTTP 404.
-- Recheck: `/icon-192.svg` và `/icon-512.svg` cũng trả HTTP 404. Render API `/health` và `/products` timeout sau 18 giây; lần kiểm tra trước `/health` timeout sau 75 giây và CORS preflight timeout ở probe 15 giây. API health, CORS và checkout production **chưa xác minh được**. Timeout không xác định nguyên nhân.
-- GitHub Actions API hiện báo không có workflow trên nhánh mặc định và tra cứu `cd.yml` trả 404; cập nhật workflow đang chờ review/merge. Nhóm cho biết cấu hình production sẵn sàng sau khi merge, nhưng không thể xác minh secrets/provider settings từ workspace này. GitHub Actions deploy/rollback, Render database backups/migrations, và rollback provider thật chưa chạy trong môi trường production.
+- Render's manually triggered deployment of merge commit `a4d08ae` completed with Node.js 24.22.1. The Start Command ran migrations and the idempotent demo seed before starting the API. Verification returned HTTP 200 from `/health` with the database connected and HTTP 200 from `/products` with 9 products.
+- Vercel URL `https://brew-lite2-17cf.vercel.app` returned HTTP 200 for `/`, `/manifest.webmanifest`, and `/icon-192.svg`.
+- GitHub Actions CI on `main` passed. The CD run on `main` failed API unit tests because that revision still used Node 22, so deployment was skipped. A Node 24 CD fix is on branch `fix/cd-verify-node24`; its post-fix workflow run has not yet been verified.
 
-Không tuyên bố production release đạt cho tới khi API health, web manifest, CORS và checkout smoke pass; đồng thời cần có kết quả workflow CD thành công.
+Do not consider the production release complete until the Node 24 CD workflow passes and its deployment smoke tests verify API health, the seeded catalog, web manifest, CORS, and checkout.

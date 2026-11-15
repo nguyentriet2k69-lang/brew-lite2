@@ -52,7 +52,7 @@ brewlite/
 
 ## Yêu cầu môi trường
 
-- Node.js >= 20 và npm (hoặc pnpm)
+- Node.js >= 24.9 và npm (bộ test Jest/Nest ESM cần Node 24.9+)
 - Docker và Docker Compose v2
 - Git
 

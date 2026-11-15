@@ -4,7 +4,7 @@ NestJS and PostgreSQL API for the BrewLite menu and checkout. The backend owns p
 
 ## Requirements
 
-- Node.js 20.19+ or 22.12+.
+- Node.js 24.9+ for local development, tests, and production. Render was verified with Node.js 24.22.1.
 - A PostgreSQL database for running the API.
 - A separate disposable PostgreSQL database for integration tests.
 
@@ -84,7 +84,7 @@ npm run test:e2e
 Remove-Item Env:TEST_DATABASE_URL
 ```
 
-In production, the release script runs `node dist/run-migrations.js` as a one-off job before updating the API/web images, and runs the idempotent demo seed only on initial setup. Local Compose runs migration and seed before starting the API.
+In production, run pending migrations before starting the API. On Render plans without a Pre-Deploy Command, use `npm run start:prod:prepare`; it applies pending migrations, runs the idempotent demo seed, then starts the API. On plans that support Pre-Deploy Command, run `npm run migration:run:prod && npm run seed:prod` there and use `npm run start:prod` as the Start Command. Local Compose runs migration and seed before starting the API.
 
 ## API overview
 
