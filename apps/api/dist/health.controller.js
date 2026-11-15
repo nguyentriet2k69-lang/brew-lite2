@@ -11,9 +11,37 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.HealthController = void 0;
 const common_1 = require("@nestjs/common");
+const typeorm_1 = require("typeorm");
 let HealthController = class HealthController {
-    check() {
-        return { status: 'ok', timestamp: new Date().toISOString() };
+    dataSource;
+    databaseInitialization;
+    constructor(dataSource) {
+        this.dataSource = dataSource;
+    }
+    async check() {
+        try {
+            if (!this.dataSource.isInitialized) {
+                this.databaseInitialization ??= this.dataSource
+                    .initialize()
+                    .then(() => undefined)
+                    .finally(() => {
+                    this.databaseInitialization = undefined;
+                });
+                await this.databaseInitialization;
+            }
+            await this.dataSource.query('SELECT 1');
+        }
+        catch {
+            throw new common_1.ServiceUnavailableException({
+                code: 'DATABASE_UNAVAILABLE',
+                message: 'Database is unavailable.',
+            });
+        }
+        return {
+            status: 'ok',
+            database: 'connected',
+            timestamp: new Date().toISOString(),
+        };
     }
 };
 exports.HealthController = HealthController;
@@ -21,9 +49,10 @@ __decorate([
     (0, common_1.Get)(),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", []),
-    __metadata("design:returntype", void 0)
+    __metadata("design:returntype", Promise)
 ], HealthController.prototype, "check", null);
 exports.HealthController = HealthController = __decorate([
-    (0, common_1.Controller)('health')
+    (0, common_1.Controller)('health'),
+    __metadata("design:paramtypes", [typeorm_1.DataSource])
 ], HealthController);
 //# sourceMappingURL=health.controller.js.map

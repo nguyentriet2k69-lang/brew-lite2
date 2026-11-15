@@ -25,6 +25,16 @@ let ProductsService = class ProductsService {
     async findAll() {
         return this.productsRepository.find();
     }
+    async findById(id) {
+        const product = await this.productsRepository.findOneBy({ id });
+        if (!product) {
+            throw new common_1.NotFoundException({
+                code: 'PRODUCT_NOT_FOUND',
+                message: 'Product was not found.',
+            });
+        }
+        return product;
+    }
     async create(product) {
         const newProduct = this.productsRepository.create(product);
         return this.productsRepository.save(newProduct);

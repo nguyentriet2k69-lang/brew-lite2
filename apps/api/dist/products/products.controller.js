@@ -15,9 +15,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ProductsController = void 0;
 const common_1 = require("@nestjs/common");
 const products_service_1 = require("./products.service");
+const product_entity_1 = require("./product.entity");
 const swagger_1 = require("@nestjs/swagger");
-const create_product_dto_1 = require("./create-product.dto");
-const update_product_dto_1 = require("./update-product.dto");
 let ProductsController = class ProductsController {
     productsService;
     constructor(productsService) {
@@ -26,46 +25,31 @@ let ProductsController = class ProductsController {
     findAll() {
         return this.productsService.findAll();
     }
-    create(createProductDto) {
-        return this.productsService.create(createProductDto);
-    }
-    remove(id) {
-        return this.productsService.remove(id);
-    }
-    update(id, updateProductDto) {
-        return this.productsService.update(id, updateProductDto);
+    findById(id) {
+        return this.productsService.findById(id);
     }
 };
 exports.ProductsController = ProductsController;
 __decorate([
     (0, common_1.Get)(),
+    (0, swagger_1.ApiOperation)({ summary: 'List public products' }),
+    (0, swagger_1.ApiOkResponse)({ type: product_entity_1.Product, isArray: true }),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", Promise)
 ], ProductsController.prototype, "findAll", null);
 __decorate([
-    (0, common_1.Post)(),
-    __param(0, (0, common_1.Body)()),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [create_product_dto_1.CreateProductDto]),
-    __metadata("design:returntype", Promise)
-], ProductsController.prototype, "create", null);
-__decorate([
-    (0, common_1.Delete)(':id'),
-    __param(0, (0, common_1.Param)('id')),
+    (0, common_1.Get)(':id'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get a public product by UUID' }),
+    (0, swagger_1.ApiParam)({ name: 'id', format: 'uuid', example: '00000000-0000-4000-8000-000000000001' }),
+    (0, swagger_1.ApiOkResponse)({ type: product_entity_1.Product }),
+    (0, swagger_1.ApiBadRequestResponse)({ description: 'The product id must be a UUID.' }),
+    (0, swagger_1.ApiNotFoundResponse)({ description: 'The product does not exist.' }),
+    __param(0, (0, common_1.Param)('id', new common_1.ParseUUIDPipe({ version: '4' }))),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", Promise)
-], ProductsController.prototype, "remove", null);
-__decorate([
-    (0, common_1.Patch)(':id'),
-    (0, common_1.Patch)(':id'),
-    __param(0, (0, common_1.Param)('id')),
-    __param(1, (0, common_1.Body)()),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, update_product_dto_1.UpdateProductDto]),
-    __metadata("design:returntype", Promise)
-], ProductsController.prototype, "update", null);
+], ProductsController.prototype, "findById", null);
 exports.ProductsController = ProductsController = __decorate([
     (0, swagger_1.ApiTags)('Products'),
     (0, common_1.Controller)('products'),
