@@ -59,6 +59,12 @@ jobs:
           TEST_DATABASE_URL: postgresql://brewlite_test@127.0.0.1:5432/brewlite_test
       - name: Build
         run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: http://127.0.0.1:4174
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Browser E2E
+        run: npm run test:e2e
 
   web:
     name: Web

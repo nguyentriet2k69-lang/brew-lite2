@@ -1,6 +1,6 @@
 # Kiến trúc BrewLite
 
-Tài liệu trình bày kiến trúc BrewLite dựa trên SRS và các sơ đồ UML. Hệ thống được thiết kế với Next.js, NestJS và PostgreSQL, triển khai bằng Docker Compose trên server Ubuntu. Cấu trúc `apps/web` và `apps/api` được dùng để tổ chức mã nguồn khi hiện thực.
+Tài liệu mô tả kiến trúc BrewLite theo SRS và các sơ đồ UML. Repository hiện có Next.js tại `apps/web`, NestJS tại `apps/api`, PostgreSQL, TypeORM migrations và CI/CD GitHub Actions. Production target là Vercel (web), Render Web Service (API) và Render PostgreSQL managed; Docker Compose chỉ dùng local/testing. Workflow CD triển khai qua Render API và Vercel CLI; provider settings/credentials chưa được xác minh trong môi trường này. Xem [deployment runbook](../deployment.md).
 
 ## 1. Mục tiêu và phạm vi
 
@@ -10,45 +10,45 @@ Nhân viên cập nhật trạng thái, khuyến mãi và loyalty thuộc phần
 
 ## 2. Cách tiếp cận kiến trúc
 
-Đề xuất backend modular monolith theo lớp. Một NestJS API chứa các module nghiệp vụ, dùng chung PostgreSQL; frontend triển khai riêng. Cách này giữ transaction đơn hàng trong một hệ thống và giảm công vận hành cho nhóm sinh viên.
+Backend hiện là modular monolith theo lớp. Một NestJS API chứa các module nghiệp vụ, dùng chung PostgreSQL; frontend Next.js build và chạy riêng. Cách này giữ transaction đơn hàng trong một hệ thống và giảm công vận hành cho nhóm sinh viên.
 
 Microservices làm tăng yêu cầu giao tiếp, quan sát và nhất quán dữ liệu trong khi MVP chưa cần triển khai độc lập từng nghiệp vụ. Dồn toàn bộ API vào Next.js không đáp ứng ràng buộc NestJS. Vì vậy, backend được tổ chức theo module trong một ứng dụng NestJS.
 
 ## 3. Thành phần và trách nhiệm
 
-| Thành phần dự kiến | Trách nhiệm | Ranh giới |
+| Thành phần | Trách nhiệm | Ranh giới |
 |---|---|---|
-| Trình duyệt khách hàng | Hiển thị UI, giỏ hàng, gửi yêu cầu | Không được quyết định giá cuối cùng hay kết quả payment |
-| `apps/web` — Next.js | Menu mobile-first/PWA, chi tiết, auth, checkout, xác nhận, lịch sử | Gọi API; không truy cập trực tiếp PostgreSQL |
-| `apps/api` — NestJS | Xác thực, validation, giá, đơn, tồn kho, payment, lịch sử | Quyết định nghiệp vụ và quyền truy cập |
-| PostgreSQL | Lưu dữ liệu domain, ràng buộc, transaction | Chỉ API và tác vụ migration được truy cập |
+| Trình duyệt khách hàng | Hiển thị menu, giỏ, auth, checkout, confirmation, history | Dữ liệu UI không quyết định giá cuối/kết quả thanh toán |
+| `apps/web` — Next.js / Vercel | Mobile-first UI; cart lưu local, auth token lưu session; gọi Nest API | Có manifest/icons, service worker cache shell/public catalog và Playwright browser E2E; production hiện trả 404 cho manifest/icons |
+| `apps/api` — NestJS / Render | Xác thực, validation, giá, đơn, tồn kho, payment, lịch sử | Quyết định nghiệp vụ và quyền truy cập; production health chưa xác minh |
+| PostgreSQL / Render | Lưu dữ liệu domain, ràng buộc, transaction | Render managed database; API dùng internal URL, browser không kết nối trực tiếp |
 | Payment mock trong API | Giả lập success/fail qua interface riêng | Lifeline Payment trong UML không tự động có nghĩa là một service triển khai riêng |
 
 ## 4. Phân lớp backend
 
-Luồng phụ thuộc: controller/DTO/guard → application service → persistence adapter/Prisma → PostgreSQL. Interface payment do nghiệp vụ sử dụng, implementation mock được cấp qua dependency injection. Controller xử lý HTTP; service điều phối nghiệp vụ; database bảo vệ tính toàn vẹn.
+Luồng phụ thuộc: controller/DTO/guard → application service → TypeORM repositories/EntityManager → PostgreSQL. Interface payment do nghiệp vụ sử dụng, mock implementation được cấp qua dependency injection. Controller xử lý HTTP; service điều phối nghiệp vụ; database bảo vệ tính toàn vẹn.
 
-Các module dự kiến: Auth, Products, Orders, Payments và Health. Phần Promotion/Loyalty chỉ bổ sung khi nhóm chọn FR-10. Đề xuất dùng Prisma cho lớp truy cập dữ liệu; lựa chọn này cần thống nhất khi triển khai backend.
+Các module hiện có: Auth, Products, Pricing, Orders, Payments, Inventory và Health. TypeORM được dùng cho entity, migration và transaction. Promotion/Loyalty chưa được triển khai (FR-10 là Could).
 
 ## 5. Luồng checkout và tính nhất quán
 
 1. UI gửi giỏ hàng và JWT tới `POST /orders`.
 2. API xác minh token, validate, lấy giá từ dữ liệu server.
-3. Trong cùng transaction, API kiểm tra và giảm tồn kho bằng thao tác có điều kiện, tạo Order PENDING và các OrderItem; nếu bất kỳ bước nào lỗi thì rollback.
-4. UI gửi `POST /payments` với đơn, phương thức và Idempotency-Key.
-5. API kiểm tra quyền sở hữu đơn, lấy số tiền từ Order và thực hiện mock. Lưu Payment và cập nhật trạng thái Order phải nhất quán trong transaction.
-6. Thành công: PAID và xóa giỏ sau xác nhận từ API. Thất bại: PAYMENT_FAILED, giữ giỏ để thử lại trên đơn hiện có.
+3. Trong cùng transaction, API khóa Product theo thứ tự ổn định, tính giá từ server, kiểm tra và giảm tồn kho, tạo Order PENDING/OrderItems và reservation HELD. `Idempotency-Key` của order chống tạo trùng; lỗi làm rollback.
+4. UI gửi `POST /payments` với order, phương thức và một `Idempotency-Key` riêng cho lần thanh toán. API kiểm tra quyền sở hữu order, lưu PaymentAttempt PROCESSING và chuyển reservation sang PAYMENT_PENDING trong transaction.
+5. Payment mock xử lý ngoài transaction DB. API ghi kết quả terminal, PaymentAttempt và reservation/order nhất quán trong transaction cuối.
+6. Thành công: order PAID, reservation CONSUMED. Thất bại đã được xác nhận: order PAYMENT_FAILED, reservation RELEASED và tồn kho được phục hồi. Retry sau thất bại cần reacquire tồn kho và key mới; timeout/unknown phải reconcile bằng key cũ, không release reservation.
 
-Không coi hai request HTTP tạo đơn và thanh toán là một transaction DB kéo dài. Cơ chế chống trùng payment và chống tạo đơn trùng cần được định nghĩa riêng; xem [ADR-004](adr/004-payment-mock-and-idempotency.md).
+Hai request HTTP tạo đơn và thanh toán không nằm trong một transaction DB kéo dài. Các transaction ngắn, unique constraints và khóa hàng/advisory bảo vệ tính nhất quán; xem [ADR-004](adr/004-payment-mock-and-idempotency.md).
 
 ## 6. Bảo mật và phi chức năng
 
-- FR-04/NFR-02: bcrypt, JWT, kiểm tra quyền sở hữu đơn và payment; validate tại biên API. Cách lưu JWT và xử lý đăng xuất cần thống nhất giữa frontend và backend.
+- FR-04/NFR-02: bcrypt, JWT, kiểm tra quyền sở hữu đơn/payment và validate ở API đã triển khai; web giữ token trong sessionStorage, cần XSS hardening trước production.
 - FR-09: transaction và giảm tồn kho có điều kiện; test hai request cạnh tranh lượng tồn cuối.
 - NFR-01: mục tiêu API menu dưới 500 ms và UI dưới 2 giây cần đo theo điều kiện SRS, chưa có kết quả đo trong repo này.
-- NFR-03: Frontend cần có PWA manifest và giao diện mobile-first.
-- NFR-04–06: Docker, CI/CD, health có kiểm tra DB, log không chứa secret, migration/seed và backup cần được cấu hình và kiểm tra khi triển khai.
-- NFR-07: unit nghiệp vụ, integration DB/order/payment và E2E menu→confirm; kết quả được ghi nhận trong giai đoạn kiểm thử.
+- NFR-03: UI mobile-first, manifest/icons và offline cache cho shell/menu đã có; manual viewport smoke tại 360/390/414 px và Playwright offline test pass. Checkout cần mạng; PWA trên thiết bị thật chưa xác minh.
+- NFR-04–06: local Docker Compose, migration/seed, health và provider CD configuration có; production workflow, Render database backups/restore và live API health chưa được kiểm chứng.
+- NFR-07: API unit, PostgreSQL integration, API E2E và browser E2E từ menu đến xác nhận đã chạy pass locally.
 
 ## 7. Truy vết thiết kế
 
@@ -58,16 +58,17 @@ Không coi hai request HTTP tạo đơn và thanh toán là một transaction DB
 | FR-04, NFR-02 | ADR-002 | Auth và guard trong `apps/api` |
 | FR-05, FR-09, NFR-06 | ADR-003 | Orders, persistence, migrations trong `apps/api` |
 | FR-06 | ADR-004 | Payments, mock adapter trong `apps/api` |
-| NFR-04–05 | ADR-005, deployment.md | Compose, workflow, Health |
+| NFR-04–05 | ADR-006, deployment.md | GitHub Actions, Render API/DB, Vercel, Health |
 
 ## 8. Các điểm cần thống nhất
 
-| Nội dung hiện tại | Điểm cần thống nhất |
+| Gap còn lại | Tác động / việc cần làm |
 |---|---|
-| Sequence đặt Idempotency-Key ở cả orders và payments; Class đặt key ở Order | phạm vi chống trùng và vị trí lưu key |
-| UC-05 yêu cầu thử lại payment nhưng Class có Order–Payment `0..1` | một payment cập nhật kết quả hay nhiều lần thử được lưu riêng |
-| Sequence mô tả payment fail trả 400, chưa có contract response thống nhất | phân biệt kết quả nghiệp vụ thất bại với request không hợp lệ |
-| Activity kiểm tra tồn kho trước transaction, Sequence kiểm tra trong transaction | bảo đảm kiểm tra và giảm tồn kho nguyên tử |
-| Triển khai trên server Ubuntu theo yêu cầu của giảng viên | Cấu hình theo ADR-005; bổ sung IP và hostname khi có server |
+| GitHub workflows chưa chạy từ repository hiện tại | GitHub Actions API reports no workflows; các workflow mới cần được commit/push trước khi verify CI và production CD. |
+| Web lưu JWT trong sessionStorage, chưa có CSP/XSS hardening | Rà soát trước production; cân nhắc cookie HttpOnly/SameSite và CSRF nếu frontend/API contract hỗ trợ. |
+| Offline checkout không hỗ trợ | Service worker chỉ cache shell/static và public catalog/pricing; không cache token, đơn hàng hay thanh toán. |
+| FR-08 chỉ có trạng thái payment/order hiện hành; staff transitions chưa triển khai | Xác nhận giữ UC-07 ngoài MVP hay bổ sung staff workflow; SRS hiện ghi Should. |
+| Promotion/Loyalty mới là lớp mô hình yêu cầu, chưa có implementation | FR-10 là Could; không mô tả là chức năng đã có. |
+| GitHub production Environment, provider IDs/secrets, Render migrations/backups chưa được xác minh | Chưa thể xác minh CD, rollback hay production checkout; xem [deployment runbook](../deployment.md). |
 
-Các điểm trên cần được thống nhất với tài liệu yêu cầu và mô hình nghiệp vụ trước khi triển khai. Tài liệu liên quan: [Sequence](../diagrams/sequence-checkout.puml), [Class](../diagrams/class-domain.puml), [Activity](../diagrams/activity-order-to-payment.puml), [Deployment](../diagrams/deployment.svg), [Thiết kế triển khai](../deployment.md).
+Production web manifest/icons và API health chưa được xác minh; các tài liệu liên quan: [Sequence](../diagrams/sequence-checkout.puml), [Class](../diagrams/class-domain.puml), [Activity](../diagrams/activity-order-to-payment.puml), [Deployment](../diagrams/deployment.svg), [Thiết kế triển khai](../deployment.md).

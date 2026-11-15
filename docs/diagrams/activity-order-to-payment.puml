@@ -1,53 +1,65 @@
 @startuml
-' Cấu hình để sơ đồ trắng đen chuẩn UML, không bị màu mè rối mắt
 skinparam style strictuml
 skinparam defaultFontName Arial
 skinparam ActivityBackgroundColor #FFFFFF
 skinparam ActivityBorderColor #000000
 skinparam ArrowColor #000000
 
-title Activity Diagram: Luồng Đặt và Thanh toán đơn hàng (UC-05)
+title Activity Diagram: Order and payment (UC-05)
 
 |Customer|
 start
-:Nhấn "Thanh toán" tại Giỏ hàng;
+:Open cart and confirm checkout;
 
 |Next.js UI|
-if (Đã đăng nhập chưa?) then ([Chưa])
-  :Chuyển hướng sang trang Login;
+if (Valid JWT?) then (No)
+  :Redirect to sign-in;\nkeep cart;
   stop
-else ([Đã đăng nhập])
-  :Sinh Idempotency-Key\nvà gọi API tạo đơn;
+else (Yes)
+  :Create order Idempotency-Key;
+  :POST /orders with JWT and cart;
 endif
 
 |NestJS API|
-:Kiểm tra JWT & Validate dữ liệu;
-if (Sản phẩm còn đủ tồn kho?) then ([Không đủ])
+:Verify JWT and validate request;
+|Database|
+:Begin transaction;\nlock Products and calculate server prices;
+if (Products exist and stock is sufficient?) then (No)
+  :Rollback transaction;
   |Next.js UI|
-  :Hiển thị lỗi "Hết hàng"\ngiữ nguyên giỏ hàng;
+  :Show validation/out-of-stock error;\nkeep cart;
   stop
-else ([Đủ tồn kho])
+else (Yes)
+  :Decrement stock;\ncreate Order, OrderItems,\nHELD reservation;
+  :Commit transaction;
+endif
+
+|Next.js UI|
+:Create a separate payment Idempotency-Key;
+:POST /payments with JWT, order ID and method;
+
+|NestJS API|
+:Verify ownership;\ncreate PaymentAttempt and set reservation PAYMENT_PENDING;
+:Call payment mock outside DB transaction;
+
+|Payment Mock|
+if (Conclusive result?) then (Success)
   |Database|
-  :Mở Transaction:\nTạo Order (PENDING)\nvà trừ tồn kho;
-  :Commit Transaction;
-  
-  |NestJS API|
-  :Gọi Cổng thanh toán (Mock);
-  
-  |Payment Service|
-  :Xử lý giao dịch;
-  if (Thanh toán thành công?) then ([Thất bại])
-    |NestJS API|
-    :Cập nhật Order = PAYMENT_FAILED;
-    |Next.js UI|
-    :Báo lỗi, giữ giỏ hàng,\ncho phép thử lại;
-    stop
-  else ([Thành công])
-    |NestJS API|
-    :Lưu Payment & Cập nhật Order = PAID;
-    |Next.js UI|
-    :Hiển thị xác nhận,\nlàm trống giỏ hàng;
-    stop
-  endif
+  :Commit PaymentAttempt SUCCESS;\nOrder PAID; reservation CONSUMED;
+  |Next.js UI|
+  :Show confirmation;\nclear cart;
+  stop
+elseif (Confirmed failure)
+  |Database|
+  :Commit PaymentAttempt FAILED;\nrestore stock; reservation RELEASED;\nOrder PAYMENT_FAILED;
+  |Next.js UI|
+  :Show failure; keep cart;\nretry with a new payment key;
+  stop
+else (Timeout / unknown)
+  |Database|
+  :Persist UNKNOWN;\nkeep reservation PAYMENT_PENDING;
+  |Next.js UI|
+  :Show pending status;\nreconcile using the same payment key;
+  stop
 endif
 @enduml

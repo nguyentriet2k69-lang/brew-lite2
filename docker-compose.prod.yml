@@ -1,3 +1,4 @@
+# RETIRED: legacy Ubuntu/Caddy deployment template. Docker Compose is local/testing only.
 x-api-environment: &api-environment
   NODE_ENV: production
   PORT: 3001

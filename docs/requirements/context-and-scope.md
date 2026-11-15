@@ -45,7 +45,7 @@ Khách hàng tại quầy cà phê thường phải xếp hàng để gọi món
 - Người dùng có thiết bị di động hoặc trình duyệt hiện đại và kết nối Internet ổn định.
 - Cổng thanh toán là mock, luôn phản hồi trong thời gian hợp lý (có thể giả lập lỗi để kiểm thử).
 - Dữ liệu menu và tồn kho được nạp qua seed/migration.
-- Nền tảng triển khai miễn phí/giá thấp có thể thay đổi; nhóm tự chốt nền tảng (chưa mặc định free tier khả dụng).
+- Deployment target đã thống nhất là Vercel cho Next.js, Render Web Service cho NestJS và Render PostgreSQL managed; Docker Compose chỉ dành local/testing. URL web trả HTTP 200 nhưng manifest 404; API health chưa phản hồi trong lần audit. Provider settings, secrets, migration và CD cần cấu hình/xác minh theo [deployment runbook](../deployment.md).
 
 ## 5. Ràng buộc
 - Công nghệ bắt buộc: **Next.js** (mobile-first/PWA), **NestJS**, **PostgreSQL**, **Docker**; được bổ sung công nghệ khác nhưng không thay thế ba thành phần đầu.

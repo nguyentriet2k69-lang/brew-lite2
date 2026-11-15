@@ -1,3 +1,4 @@
+# RETIRED: legacy Ubuntu/Caddy deployment configuration; active production uses Vercel + Render.
 {$WEB_DOMAIN} {
   encode zstd gzip
   reverse_proxy web:3000

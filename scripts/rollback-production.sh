@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# RETIRED: legacy Ubuntu/Compose rollback; active production uses Vercel + Render rollback.
 set -Eeuo pipefail
 
 cd "$(dirname "$0")"

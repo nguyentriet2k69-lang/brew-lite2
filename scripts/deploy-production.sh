@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# RETIRED: legacy Ubuntu/Compose deployment; active production uses Vercel + Render.
 set -Eeuo pipefail
 
 cd "$(dirname "$0")"

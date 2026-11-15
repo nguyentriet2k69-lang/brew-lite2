@@ -39,7 +39,7 @@ Quy ước ưu tiên MoSCoW: **Must / Should / Could / Won't**. Mã tham chiếu
 |:--|:--|:--|:--|:--|
 | NFR-01 | Hiệu năng | API phản hồi nhanh; menu tải nhanh | Must | AC1: API đọc (`GET /products`) < 500 ms với dữ liệu mẫu (đo bằng test/curl). AC2: menu hiển thị nội dung < 2 giây trong mạng bình thường. |
 | NFR-02 | Bảo mật | Bảo vệ tài khoản và dữ liệu | Must | AC1: mật khẩu băm trước khi lưu. AC2: API nhạy cảm yêu cầu JWT hợp lệ. AC3: input được validate (class-validator). AC4: không có secret trong repo/log. |
-| NFR-03 | Tính khả dụng / Khả dụng giao diện | Giao diện mobile-first/PWA, chạy trên trình duyệt phổ biến | Must | AC1: hiển thị đúng ở viewport 360–414 px. AC2: có manifest PWA hợp lệ. AC3: chạy được trên Chrome/Safari/Firefox bản mới. |
+| NFR-03 | Tính khả dụng / Khả dụng giao diện | Giao diện mobile-first/PWA, chạy trên trình duyệt phổ biến | Must | AC1: hiển thị đúng ở viewport 360–414 px. AC2: có manifest PWA hợp lệ. AC3: chạy được trên Chrome/Safari/Firefox bản mới. AC4: sau khi tải menu thành công, shell và menu cache có thể xem offline; đặt hàng/thanh toán cần mạng. |
 | NFR-04 | Khả năng triển khai | Đóng gói Docker, tự động hóa CI/CD | Must | AC1: `docker compose up` chạy web + api + db. AC2: CI chạy Install→Lint→Test→Build khi mở PR và chặn merge nếu fail. AC3: CD triển khai, chạy smoke test, có cách rollback. |
 | NFR-05 | Độ tin cậy / Quan sát | Health check và log | Should | AC1: `GET /health` trả 200 khi hệ thống sẵn sàng. AC2: lỗi nghiệp vụ được log không chứa thông tin nhạy cảm. |
 | NFR-06 | Bảo trì / Dữ liệu | Migration và seed tái tạo DB | Must | AC1: chạy migration + seed trên DB trống tạo lại được dữ liệu mẫu. |
@@ -51,7 +51,7 @@ Quy ước ưu tiên MoSCoW: **Must / Should / Could / Won't**. Mã tham chiếu
 - Lỗi hiển thị thông báo thân thiện ở UI; API trả mã lỗi HTTP đúng ngữ nghĩa.
 
 ## 4. Sơ đồ use-case tổng quát
-Xem `docs/diagrams/use-case-overview.puml` (xuất `.svg`).
+Source diagram: `docs/diagrams/use-case-overview.puml`. See `docs/diagrams/README.md` for the status of checked-in SVG exports.
 
 ## 5. Độ phủ nhóm yêu cầu tối thiểu theo đề
 
