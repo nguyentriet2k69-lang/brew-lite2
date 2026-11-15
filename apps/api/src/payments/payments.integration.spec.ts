@@ -44,20 +44,23 @@ integrationDescribe('Payments PostgreSQL workflow integration', () => {
 
   afterAll(async () => {
     if (!dataSource?.isInitialized) return;
-    for (const userId of userIds) {
-      const orders = await dataSource.getRepository(Order).findBy({ userId });
-      const orderIds = orders.map(({ id }) => id);
-      if (orderIds.length) {
-        await dataSource.getRepository(PaymentAttempt).delete({ orderId: In(orderIds) });
-        await dataSource.query('DELETE FROM "inventory_reservation_items" WHERE "reservationId" IN (SELECT "id" FROM "inventory_reservations" WHERE "orderId" = ANY($1::uuid[]))', [orderIds]);
-        await dataSource.query('DELETE FROM "inventory_reservations" WHERE "orderId" = ANY($1::uuid[])', [orderIds]);
-        await dataSource.query('DELETE FROM "order_items" WHERE "orderId" = ANY($1::uuid[])', [orderIds]);
-        await dataSource.getRepository(Order).delete(orderIds);
+    try {
+      for (const userId of userIds) {
+        const orders = await dataSource.getRepository(Order).findBy({ userId });
+        const orderIds = orders.map(({ id }) => id);
+        if (orderIds.length) {
+          await dataSource.getRepository(PaymentAttempt).delete({ orderId: In(orderIds) });
+          await dataSource.query('DELETE FROM "inventory_reservation_items" WHERE "reservationId" IN (SELECT "id" FROM "inventory_reservations" WHERE "orderId" = ANY($1::uuid[]))', [orderIds]);
+          await dataSource.query('DELETE FROM "inventory_reservations" WHERE "orderId" = ANY($1::uuid[])', [orderIds]);
+          await dataSource.query('DELETE FROM "order_items" WHERE "orderId" = ANY($1::uuid[])', [orderIds]);
+          await dataSource.getRepository(Order).delete(orderIds);
+        }
+        await dataSource.getRepository(User).delete(userId);
       }
-      await dataSource.getRepository(User).delete(userId);
+      for (const productId of productIds) await dataSource.getRepository(Product).delete(productId);
+    } finally {
+      await dataSource.destroy();
     }
-    for (const productId of productIds) await dataSource.getRepository(Product).delete(productId);
-    await dataSource.destroy();
   }, 60_000);
 
   it('serializes concurrent same-key requests and creates one charge/attempt', async () => {

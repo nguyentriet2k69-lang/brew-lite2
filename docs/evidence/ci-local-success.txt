@@ -1,0 +1,74 @@
+BrewLite local verification evidence
+Date: 2026-11-15
+Scope: local code, isolated PostgreSQL test database, Docker Compose, and manual browser smoke.
+
+API unit/Jest suite
+  PowerShell from repository root:
+    $env:TEST_DATABASE_URL='postgresql://brewlite_test@127.0.0.1:5433/brewlite_test'
+    Push-Location apps\api
+    npm run test -- --runInBand
+    Pop-Location
+  PASS: 28 suites, 126 tests
+
+PostgreSQL integration suite
+  npm run test:integration
+  PASS: 2 suites, 9 tests
+
+API HTTP E2E
+  npm run test:e2e
+  PASS: 1 suite, 2 tests
+  Note: API E2E via Nest/Supertest; this is not browser E2E.
+
+API lint/build
+  npm run lint
+  npm run build
+  PASS
+
+Web lint/build
+  npm run lint
+  npm run build
+  PASS; generated /manifest.webmanifest route and service worker asset.
+  NEXT_PUBLIC_API_URL was set to http://127.0.0.1:4174 for the local browser test build.
+
+Browser E2E
+  npm run test:e2e
+  PASS: 2 browser tests (mobile Chromium).
+  Checkout test covers menu customization, cart, registration, payment, and history.
+  Offline test confirms the cached product menu remains available without a network.
+
+PlantUML export
+  PlantUML 1.2026.10 rendered all five docs/diagrams/*.puml files to SVG.
+  PASS: activity, class, deployment, sequence, and use-case previews regenerated.
+
+Docker Compose
+  docker compose --env-file .env.example up --build -d --wait --wait-timeout 240
+  PASS: PostgreSQL, API, and web healthy.
+  POSTGRES_HOST_PORT was set to 5434 because host port 5432 was already occupied.
+  The retired Ubuntu production Compose template was configuration-checked earlier
+  in the audit. It is not part of the selected Vercel/Render deployment.
+
+Local smoke
+  GET /health, /products, /pricing/options, /, /manifest.webmanifest,
+  /icon-192.svg, and /icon-512.svg
+  PASS: HTTP 200 for all endpoints/assets.
+
+Manual browser smoke
+  Select product, size and topping; add to cart; register; create order;
+  complete mock payment; view confirmation and order history.
+  PASS.
+  At requested viewports 360, 390, and 414 px, no horizontal overflow was observed.
+
+Production deployment / public HTTPS
+  Public URLs supplied by the team:
+    Frontend https://brew-lite2-17cf.vercel.app/
+    API https://brew-lite2-backend.onrender.com
+  2026-11-15 recheck: frontend root HTTP 200; /manifest.webmanifest and both
+  icon paths HTTP 404. API /health and /products timed out on 18-second probes.
+  Earlier: /health timed out after 75 seconds; CORS preflight timed out on a
+  15-second probe.
+  Production API health/browser checkout NOT VERIFIED.
+  Team confirmed Vercel + Render as the target. GitHub Actions currently reports
+  no workflows on the default branch; workflow changes need review/merge. The
+  team reports production setup ready after merge, but it is not independently
+  verified here. GitHub provider configuration,
+  production deploy, database migration/backup and provider rollback remain unverified.

@@ -2,55 +2,65 @@
 skinparam style strictuml
 autonumber
 
+title Checkout sequence (FR-04–FR-09)
+
 actor Customer
-participant "Next.js UI" as UI
+participant "Next.js UI\n(planned checkout)" as UI
 participant "NestJS API" as API
 database "PostgreSQL" as DB
 participant "Payment Mock" as Pay
 
-Customer -> UI: Bấm "Xác nhận thanh toán"
-UI -> UI: Sinh Idempotency-Key
-
-UI -> API: POST /orders (JWT, Cart Data, Idempotency-Key)
-activate API
-
-API -> API: Kiểm tra JWT & Validate dữ liệu
-
-alt JWT không hợp lệ / Dữ liệu sai
-    API --> UI: 401 Unauthorized / 400 Bad Request
-    UI --> Customer: Yêu cầu đăng nhập / Báo lỗi
-else Hợp lệ
-    API -> DB: Bắt đầu Transaction (Check tồn kho)
-    DB --> API: OK (Đủ hàng)
-    
-    API -> DB: Tạo Order (PENDING) + OrderItems
-    API -> DB: Cập nhật tồn kho (Trừ số lượng)
-    API -> DB: Commit Transaction
-    
-    API -> API: Xác nhận đơn hàng đã tạo xong
-    API --> UI: 201 Created (Mã đơn hàng)
-    
-    UI -> API: POST /payments (Mã đơn, Idempotency-Key)
+Customer -> UI: Confirm cart
+alt No valid JWT
+    UI --> Customer: Redirect to sign-in; keep cart
+else JWT available
+    UI -> API: POST /orders\nBearer JWT, items, order Idempotency-Key
     activate API
-    API -> Pay: Gọi Cổng thanh toán (Xử lý giao dịch)
-    activate Pay
-    
-    alt Thanh toán thất bại (Thẻ hết tiền / Lỗi mạng)
-        Pay --> API: Báo lỗi (Payment Failed)
-        API -> DB: Cập nhật Order = PAYMENT_FAILED
-        API --> UI: 400 Payment Failed
-        UI --> Customer: Báo lỗi, giữ giỏ hàng, cho thử lại
-    else Thanh toán thành công
-        Pay --> API: Giao dịch thành công (Transaction ID)
-        API -> DB: Cập nhật Order = PAID
-        API -> DB: Lưu Payment Record
-        API --> UI: 200 OK
-        UI --> Customer: Hiển thị xác nhận, xóa giỏ hàng
+    API -> API: Verify JWT; validate DTO; fingerprint items
+    API -> DB: Begin transaction; serialize user/key;\nlock Products; validate stock and server prices
+    alt Invalid cart, product missing, or insufficient stock
+        DB --> API: Reject and rollback
+        API --> UI: 4xx; no Order/reservation created
+        UI --> Customer: Show error; keep cart
+    else Valid order
+        API -> DB: Decrement stock; create Order PENDING,\nOrderItems and HELD reservation
+        API -> DB: Commit
+        DB --> API: Order and reservation IDs
+        API --> UI: 201 Created
+
+        UI -> API: POST /payments\nBearer JWT, orderId, method,\npayment Idempotency-Key (separate from order key)
+        API -> DB: Begin transaction; verify ownership;\ncreate PaymentAttempt PROCESSING;\nreservation HELD → PAYMENT_PENDING
+        API -> DB: Commit
+        API -> Pay: Charge with gateway idempotency key
+        activate Pay
+        alt Confirmed success
+            Pay --> API: SUCCESS + gateway reference
+            API -> DB: Transaction: PaymentAttempt SUCCESS;\nOrder PAID; reservation CONSUMED
+            API --> UI: 200 terminal success
+            UI --> Customer: Show confirmation; clear cart
+        else Confirmed failure
+            Pay --> API: FAILED
+            API -> DB: Transaction: PaymentAttempt FAILED;\nrestore stock; reservation RELEASED;\nOrder PAYMENT_FAILED
+            API --> UI: 200 terminal failure
+            UI --> Customer: Show failure; keep cart
+            note over UI,API
+              A new payment attempt requires a new payment key,
+              a fresh stock reservation, and available stock.
+            end note
+        else Timeout / outcome unknown
+            Pay --> API: No conclusive result
+            API -> DB: Persist UNKNOWN; retain PAYMENT_PENDING reservation
+            API --> UI: 202 Accepted + attempt ID
+            UI -> API: GET /payments/:id or POST /payments\nsame payment key to reconcile
+            API -> Pay: Lookup using original gateway key
+            Pay --> API: Reconciled terminal result or still unknown
+            note over API,DB
+              Never create a second charge or release stock
+              while the gateway outcome is unknown.
+            end note
+        end
+        deactivate Pay
     end
-    
-    deactivate Pay
     deactivate API
 end
-
-deactivate API
 @enduml

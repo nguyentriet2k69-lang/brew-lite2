@@ -1,70 +1,103 @@
-# Thiết kế triển khai BrewLite trên server Ubuntu
+# Triển khai BrewLite trên Vercel và Render
 
-BrewLite được thiết kế để triển khai trên server Ubuntu theo yêu cầu của giảng viên. Tài liệu mô tả các thành phần, kết nối và quy trình triển khai; IP, hostname và lệnh chạy cụ thể được bổ sung khi cấu hình server.
+## Kiến trúc triển khai
 
-## 1. Môi trường và ánh xạ thành phần
-
-| Môi trường | Thiết kế |
+| Môi trường | Thành phần |
 |---|---|
-| Local | Docker Compose: web localhost:3000, API localhost:3001; DB nếu cần publish chỉ 127.0.0.1:5433 |
-| CI | GitHub Actions; PostgreSQL test riêng cho integration/E2E |
-| Server | Ubuntu 24.04 LTS, Docker Engine, Compose v2; web/API có HTTPS, DB nội bộ |
+| Local/testing | Docker Compose: Next.js web, NestJS API, PostgreSQL; integration tests dùng PostgreSQL cô lập |
+| Production web | Vercel project chạy Next.js từ `apps/web` |
+| Production API | Render Web Service chạy NestJS từ `apps/api` |
+| Production database | Render PostgreSQL managed service; API kết nối bằng internal database URL |
+| CI/CD | GitHub Actions chạy test/build; Render API triển khai backend, Vercel CLI triển khai frontend |
 
-| Service | Code/image dự kiến | Kết nối |
-|---|---|---|
-| proxy | Caddy 2 | Public TCP 80/443; route tới web/api |
-| web | apps/web, image GHCR brew-lite2-web | Network edge, cổng nội bộ 3000 |
-| api | apps/api, image GHCR brew-lite2-api | Network edge/data, cổng nội bộ 3001 |
-| db | PostgreSQL 16 | Network data, cổng 5432, không publish |
-| migrate | Cùng image API của release, chạy one-off | Network data, migration rồi thoát |
+Production URLs do nhóm cung cấp:
 
-Server có thể là máy trường cấp, máy nhóm hoặc VPS. Tài nguyên và IP được ghi nhận khi cấp server. Các đường dẫn trong bảng là cấu trúc mã nguồn dự kiến.
+- Web: <https://brew-lite2-17cf.vercel.app/>
+- API: <https://brew-lite2-backend.onrender.com>
+- Health: <https://brew-lite2-backend.onrender.com/health>
 
-## 2. Network và HTTPS
+Compose/Caddy/GHCR/SSH không còn là production topology. Các cấu hình Ubuntu cũ (`docker-compose.prod.yml`, `Caddyfile`, `scripts/deploy-production.sh`, `scripts/rollback-production.sh`, `docs/production.env.example`) được giữ để tham khảo nhưng **retired**, không được workflow mới sử dụng. Compose hiện hành chỉ dành cho local/testing.
 
-Network `edge` gồm proxy/web/api; `data` có `internal: true`, gồm api/db/migrate. Chỉ proxy publish 80/443. API gọi DB bằng hostname `db:5432`; web và browser không có quyền truy cập DB. SSH chỉ cho nguồn quản trị/deploy được phép; kiểm tra cả firewall host và published ports Docker.
+## Cấu hình provider trước khi bật CD
 
-Hai hostname `WEB_DOMAIN`, `API_DOMAIN` có DNS trỏ về server. Caddy route HTTPS tới `web:3000` và `api:3001`, redirect HTTP sang HTTPS. Trước khi cấp certificate cần kiểm tra DNS và cổng 80/443, sau đó thử truy cập HTTPS từ bên ngoài.
+### Render PostgreSQL
 
-Browser gọi `https://API_DOMAIN`. Nếu có SSR, web có thể gọi `http://api:3001` nội bộ. `NEXT_PUBLIC_API_URL` cần truyền ở bước build khi Next.js dùng biến public build-time; thay domain cần build lại. API bind 0.0.0.0 và CORS cho đúng `https://WEB_DOMAIN`.
+1. Dùng Render PostgreSQL instance của nhóm; không tạo database mới khi service hiện có đang dùng.
+2. Cấu hình API bằng internal connection string trong Render Environment dưới tên `DATABASE_URL`; không đưa chuỗi này vào repository hoặc GitHub Actions logs.
+3. Xác nhận plan có backup/restore phù hợp dữ liệu đồ án. Backup/restore thực tế chưa được kiểm chứng trong audit.
 
-## 3. Secrets và dữ liệu
+### Render API Web Service
 
-- Runtime secrets (DATABASE_URL, JWT_SECRET, DB password) lưu ngoài Git, ví dụ `/opt/brewlite/secrets/`; thư mục 0700, file 0600, owner phù hợp tài khoản deploy. Dùng env-file hoặc mount tương thích với ứng dụng.
-- SSH deploy key và host fingerprint đã kiểm tra nằm trong GitHub Environment secrets. Credential pull GHCR private có quyền đọc package; job publish có quyền ghi package.
-- Volume `postgres_data` giữ DB; `caddy_data`/`caddy_config` giữ TLS state. Deploy/rollback không xóa volume.
-- Chỉ commit ví dụ tên biến, không in token/password/DB URL ra log. Secret development không dùng làm secret server.
+- Connect the service to this GitHub repository and the `main` branch so the Render API can build a requested commit SHA.
+- Root Directory: `apps/api`
+- Build Command: `npm ci && npm run build`
+- Start Command: `npm run start:prod`
+- Health Check Path: `/health`
+- Pre-Deploy Command: `npm run migration:run:prod` trên plan hỗ trợ pre-deploy command. Migration phải chạy trước khi rollout; nếu plan không hỗ trợ, cấu hình một migration job tương đương trước khi bật deploy tự động.
+- Environment:
+  - `DATABASE_URL`: internal URL của Render PostgreSQL.
+  - `JWT_SECRET`: giá trị sinh riêng, tối thiểu 32 bytes.
+  - `JWT_EXPIRES_IN`: ví dụ `1d`.
+  - `CORS_ORIGIN`: chính xác `https://brew-lite2-17cf.vercel.app`.
+  - `MOCK_PAYMENT_RESULT=success`, `MOCK_PAYMENT_TIMEOUT=false` cho demo happy path.
+  - `NODE_ENV=production` nếu service chưa tự đặt.
+- Tắt Render auto-deploy theo commit. Workflow gửi đúng commit SHA qua Render API; bật auto-deploy đồng thời có thể gây deploy trùng hoặc đưa code mới trở lại sau rollback.
 
-## 4. Quy trình CI/CD
+### Vercel Web Project
 
-1. PR chạy Install → Lint → Unit Test → Build; integration/E2E dùng DB test riêng. Cấu hình required checks để chặn merge khi kiểm tra thất bại.
-2. Push main hoặc tag release được phép: kiểm tra, build hai image phù hợp CPU server, push `ghcr.io/nguyentriet2k69-lang/brew-lite2-web:<sha>` và `brew-lite2-api:<sha>`. Lưu cặp digest cùng release manifest.
-3. Serialize deploy. SSH tới Ubuntu với fingerprint đã kiểm tra, pull image theo digest và giữ manifest release ổn định trước đó.
-4. Lần đầu khởi động DB và đợi healthy. Trước migration rủi ro, tạo bản dump. Chạy migrate one-off từ image API mới với DB nội bộ; lỗi thì dừng release.
-5. Cập nhật API/web bằng Compose, đợi healthy rồi smoke HTTPS: trang web, /health và GET /products. Checkout mock được kiểm tra theo test plan với dữ liệu demo.
-6. Nếu deploy/smoke fail: đánh dấu pipeline fail, rollback cặp image ổn định khi schema tương thích, kiểm tra lại health/smoke. Lưu SHA/digest, kết quả và log đã loại secrets.
+- Root Directory: `apps/web`; framework: Next.js.
+- Production environment variable `NEXT_PUBLIC_API_URL=https://brew-lite2-backend.onrender.com`. Biến này được dùng trong bundle public, không đặt credential nào trong đó.
+- Production domain phải trỏ đúng về project đang triển khai. Production deploy phải do CD workflow điều phối, không để Git integration tạo production deploy trùng; preview deployments có thể tiếp tục dùng theo chính sách nhóm.
+- Xác minh `/manifest.webmanifest` trên production sau khi deploy. URL hiện tại trả 404 trong lần kiểm tra cuối.
 
-Compose và workflow cần dùng đúng các script migration, build và start của ứng dụng.
+### GitHub Actions Environment `production`
 
-## 5. Migration, health và khôi phục
+Tạo Environment `production`; bật required reviewers nếu phù hợp. Thêm các **Variables**:
 
-Migration có version, ưu tiên tương thích ngược để app cũ vẫn chạy khi đổi schema. Không dùng reset/schema push thay lịch sử. Seed chỉ chạy có kiểm soát lúc khởi tạo dữ liệu mẫu, không tự xóa dữ liệu hoặc reset mật khẩu mỗi lần app restart.
-
-API /health kiểm tra DB: 200 khi sẵn sàng, 503 khi lỗi, không lộ cấu hình. DB dùng pg_isready; web có HTTP probe. Mốc cấu hình ban đầu: probe 30s, timeout 5s, retry 3; điều chỉnh start period theo thời gian khởi động của ứng dụng. Restart policy không tự restart chỉ vì unhealthy; pipeline cần xử lý rollout fail.
-
-Log stdout/stderr, có timestamp/requestId/status, không chứa secret. Dùng log rotation để giới hạn dung lượng và tra cứu log theo service.
-
-Dump DB trước migration rủi ro và trước bàn giao, lưu bản sao an toàn ngoài server, kiểm tra restore trên DB cô lập. Seed chỉ tái tạo dữ liệu mẫu, không thay thế backup dữ liệu phát sinh.
-
-Rollback app dùng cặp image/digest cũ, không tự đảo schema. Nếu migration không tương thích, chặn ghi và chọn sửa tiến hoặc restore backup theo quy trình vận hành được duyệt; ghi nhận dữ liệu có thể mất sau thời điểm dump.
-
-## 6. Các mục cần kiểm tra khi triển khai
-
-| Thành phần thiết kế | Nội dung kiểm tra |
+| Variable | Giá trị |
 |---|---|
-| Server Ubuntu + Compose, topology trên | Server/IP/hostname và cấu hình thật |
-| Caddy HTTPS, DB nội bộ | DNS/TLS, network/firewall và minh chứng |
-| GHCR → SSH deploy → smoke | Workflow, Dockerfile/Compose và logs |
-| Secrets/volume/migration/rollback | Cấu hình runtime, dump/restore và kiểm tra rollback |
+| `API_URL` | `https://brew-lite2-backend.onrender.com` |
+| `WEB_URL` | `https://brew-lite2-17cf.vercel.app` |
+| `RENDER_SERVICE_ID` | ID của Render API Web Service, dạng `srv-...` |
+| `VERCEL_ORG_ID` | Vercel team/org ID |
+| `VERCEL_PROJECT_ID` | Vercel project ID cho web |
 
-[Source PlantUML](diagrams/deployment.puml), [SVG](diagrams/deployment.svg), [overview](architecture/overview.md), [ADR-005](architecture/adr/005-deployment-platform.md) mô tả cùng kiến trúc. Kết quả triển khai được ghi nhận bằng URL truy cập, log pipeline và kết quả kiểm thử.
+Thêm các **Secrets**:
+
+| Secret | Quyền dùng |
+|---|---|
+| `RENDER_API_KEY` | Đọc deployment hiện tại, deploy commit, và rollback Render service |
+| `VERCEL_TOKEN` | Deploy/rollback đúng Vercel project/team |
+
+Không gửi secrets qua chat, không in ra workflow logs và không commit `.env` thật. Các lệnh workflow fail rõ ràng khi thiếu biến/secrets.
+
+## Quy trình CI/CD
+
+`.github/workflows/cd.yml` chạy verify trước khi deploy:
+
+1. Install, lint, unit test, PostgreSQL integration/E2E và build API/Web trên GitHub Actions.
+2. Chỉ khi verify pass, workflow lưu Render deployment đang live để có thể rollback.
+3. Dùng Render API tạo deployment cho đúng `GITHUB_SHA`; poll trạng thái tới `live` hoặc trạng thái lỗi. Render API health và `/products` được smoke-test.
+4. Dùng Vercel CLI deploy production từ `apps/web`, sau đó smoke-test trang web, manifest, API health, products và CORS preflight.
+5. Nếu lỗi sau khi Render đã nhận deploy, workflow khôi phục Vercel deployment (nếu đã deploy) và Render deployment trước đó. Cơ sở dữ liệu/migration không tự rollback; migration phải backward-compatible.
+
+Workflow chạy khi push `main`, tag `v*`, hoặc dispatch thủ công từ `main`/tag `v*`. Deploy bị serialize để tránh hai release production chạy đồng thời. GitHub Environment, provider IDs/tokens, Render service configuration và domain settings chưa được kiểm chứng từ repository; cần cấu hình an toàn trước lần chạy đầu.
+
+Tham khảo hướng dẫn chính thức: [Vercel CLI deploy](https://vercel.com/docs/cli/deploying-from-cli), [Vercel rollback](https://vercel.com/docs/cli/rollback), [Render deploys](https://render.com/docs/deploys), [Render deploy API](https://api-docs.render.com/reference/create-deploy), [Render rollback API](https://api-docs.render.com/reference/rollback-deploy).
+
+## Rollback và database
+
+- Automated rollback dùng Render API với ID của deployment live trước release; Vercel CLI rollback đưa production traffic về deployment trước. Nếu rollback lỗi, workflow giữ trạng thái thất bại để cần xử lý thủ công.
+- Vercel Hobby chỉ cho rollback tới production deployment liền trước; khả năng rollback sâu hơn phụ thuộc plan Vercel.
+- Có thể rollback web thủ công từ Vercel CLI/dashboard và API từ Render Dashboard → Deploys. Không restart/rollback database bằng cách thay URL tùy tiện.
+- Rollback code **không** đảo schema hoặc dữ liệu. Ưu tiên migration backward-compatible; xem backup/restore theo plan của Render trước thao tác dữ liệu. Không tự động chạy `migration:revert` trên production.
+
+## Kiểm tra production đã thực hiện
+
+Ngày 2026-11-15:
+
+- Vercel web root trả HTTP 200; `/manifest.webmanifest` trả HTTP 404.
+- Recheck: `/icon-192.svg` và `/icon-512.svg` cũng trả HTTP 404. Render API `/health` và `/products` timeout sau 18 giây; lần kiểm tra trước `/health` timeout sau 75 giây và CORS preflight timeout ở probe 15 giây. API health, CORS và checkout production **chưa xác minh được**. Timeout không xác định nguyên nhân.
+- GitHub Actions API hiện báo không có workflow trên nhánh mặc định và tra cứu `cd.yml` trả 404; cập nhật workflow đang chờ review/merge. Nhóm cho biết cấu hình production sẵn sàng sau khi merge, nhưng không thể xác minh secrets/provider settings từ workspace này. GitHub Actions deploy/rollback, Render database backups/migrations, và rollback provider thật chưa chạy trong môi trường production.
+
+Không tuyên bố production release đạt cho tới khi API health, web manifest, CORS và checkout smoke pass; đồng thời cần có kết quả workflow CD thành công.

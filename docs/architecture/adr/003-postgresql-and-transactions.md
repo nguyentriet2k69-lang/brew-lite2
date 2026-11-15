@@ -1,16 +1,16 @@
 # ADR 003 PostgreSQL và transaction nghiệp vụ
 
-Trạng thái: Thiết kế dữ liệu theo yêu cầu PostgreSQL của đề bài.
+Trạng thái: Đã chấp nhận và hiện thực bằng PostgreSQL + TypeORM.
 
 ## Bối cảnh và lựa chọn
 
-FR-05/09 yêu cầu tạo đơn và giảm tồn kho nguyên tử; NFR-06 yêu cầu tái tạo DB. PostgreSQL đáp ứng ràng buộc dữ liệu quan hệ và transaction. Prisma và TypeORM đều là phương án ORM; đề xuất dùng Prisma để quản lý truy vấn và migration.
+FR-05/09 yêu cầu tạo đơn và giảm tồn kho nguyên tử; NFR-06 yêu cầu tái tạo DB. PostgreSQL đáp ứng ràng buộc dữ liệu quan hệ và transaction; TypeORM là ORM hiện được sử dụng trong NestJS API.
 
-## Quyết định đề xuất
+## Quyết định
 
-Đặt ràng buộc dữ liệu ở DB, dùng Decimal cho tiền và constraint unique cho khóa chống trùng sau khi chốt contract. Tạo Order/OrderItem và giảm tồn kho trong cùng transaction; update có điều kiện tồn kho đủ và kiểm tra số dòng cập nhật. Không kiểm tra tồn kho ở một request rồi tin kết quả đó cho request sau.
+Dùng TypeORM entities/migrations, PostgreSQL constraints/indexes, numeric nguyên VND an toàn và unique constraint cho idempotency. Tạo Order/OrderItem và reservation, giảm stock trong cùng transaction với khóa Product; payment success/failure cập nhật attempt/order/reservation trong transaction riêng. Không kéo transaction DB qua lời gọi gateway.
 
-Schema domain kế thừa Class diagram; enum, thuộc tính và migration phải được ánh xạ nhất quán sau khi thống nhất các điểm còn mở. Migration versioned được commit; seed chạy được trên DB trống. Production migration là bước có kiểm soát của release, không dùng reset hay schema push thay lịch sử.
+Schema domain dùng các entity hiện hành; migration versioned được commit; seed chạy trên DB trống. Production migration là bước có kiểm soát của release, không dùng reset hay schema push thay lịch sử.
 
 ## Hệ quả và kiểm chứng
 

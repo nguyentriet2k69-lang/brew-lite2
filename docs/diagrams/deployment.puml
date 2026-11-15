@@ -5,71 +5,59 @@ skinparam defaultFontName Arial
 skinparam packageStyle rectangle
 skinparam nodesep 40
 skinparam ranksep 50
-title BrewLite — Deployment on Ubuntu Server
+title BrewLite — Vercel + Render Deployment
+
 actor "Customer browser\nMobile / PWA" as customer
-package "LOCAL — Docker Compose" {
-  node "Developer machine" {
-    artifact "web :3000\napps/web (planned)" as lw
-    artifact "api :3001\napps/api (planned)" as la
-    database "Development PostgreSQL" as ld
-    storage "Dev DB volume" as lv
+
+package "LOCAL / TESTING — Docker Compose" {
+  node "Developer machine / test runner" {
+    artifact "Next.js web\napps/web :3000" as localweb
+    artifact "NestJS API\napps/api :3001" as localapi
+    database "Local / isolated test PostgreSQL" as localdb
   }
-  lw --> la : HTTP
-  la --> ld : SQL
-  ld --> lv : Persist
+  localweb --> localapi : HTTP
+  localapi --> localdb : SQL
 }
-package "CI/CD — GitHub" {
-  cloud "Repository brew-lite2" as repo
-  node "GitHub Actions" {
-    artifact "Install / Lint / Test / Build\nImage build / deploy / smoke" as ci
-    database "Isolated test PostgreSQL" as testdb
+
+package "CI/CD — GitHub Actions" {
+  cloud "Repository\nbrew-lite2" as repo
+  node "Verify job" as verify {
+    artifact "Install / Lint / Unit\nPostgreSQL Integration + API E2E\nBuild API + Web" as checks
+    database "Ephemeral test PostgreSQL" as testdb
   }
-  cloud "GHCR\nbrew-lite2-web / brew-lite2-api\nCommit SHA tag + digest" as registry
-  artifact "GitHub Environment secrets\nSSH key / verified host fingerprint" as ghsecrets
+  node "Production deploy job" as release {
+    artifact "Render API deploy\ncommit SHA / poll / smoke" as renderdeploy
+    artifact "Vercel CLI production deploy\npublic HTTPS smoke" as verceldeploy
+    artifact "Protected GitHub Environment\nprovider secrets + IDs" as secrets
+  }
 }
-node "Ubuntu 24.04 LTS server\nDocker Engine + Compose v2\nSchool-provided, existing host or VPS" as server {
-  node "edge network" {
-    node "proxy: Caddy 2\nPublic TCP 80/443\nWEB_DOMAIN / API_DOMAIN" as proxy
-    artifact "web: Next.js :3000\napps/web (planned)" as web
-    artifact "api: NestJS :3001\napps/api (planned)\nIncludes payment mock\nAlso joins data network" as api
-  }
-  package "data network — internal: true\nAPI + DB + migrate" {
-    database "db: PostgreSQL 16 :5432\nNo host port publishing" as db
-    artifact "migrate: API image\nOne-off before rollout" as migrate
-    storage "postgres_data" as disk
-  }
-  artifact "Runtime secrets outside Git\nDATABASE_URL / JWT_SECRET\nRestricted files" as secrets
-  storage "caddy_data / caddy_config" as certs
-  node "Docker healthchecks / rotated logs\nAPI /health probes DB" as health
+
+cloud "Vercel" as vercel {
+  artifact "Production Next.js project\napps/web\nNEXT_PUBLIC_API_URL" as web
 }
-cloud "Protected off-server DB dump\nVerify restore before handover" as backup
-customer --> lw : Local HTTP
-customer --> proxy : HTTPS web/API
-proxy --> web : HTTP web:3000
-proxy --> api : HTTP api:3001
-web --> api : Internal HTTP when SSR
-api --> db : Internal SQL / data network
-migrate --> db : Versioned migration
-db --> disk : Persist
-proxy --> certs : Persist TLS state
-secrets --> api : Runtime configuration
-secrets --> db : DB password
-secrets --> migrate : DB credentials
-repo --> ci : PR / main / release tag
-ghsecrets --> ci : Authorized deploy
-ci --> testdb : Integration / E2E
-ci --> registry : Publish checked images
-server --> registry : Pull release images
-ci --> server : SSH deploy / migration first
-ci --> proxy : HTTPS smoke after health
-db --> backup : Controlled dump via server task
-health --> api : GET /health
-health --> web : HTTP probe
-api --> health : Sanitized logs
+
+cloud "Render" as render {
+  node "NestJS Web Service\napps/api\nHealth: /health" as api
+  database "Managed PostgreSQL\nInternal connection URL" as db
+}
+
+customer --> web : HTTPS web
+customer --> api : HTTPS API / CORS
+web --> api : HTTPS API requests
+api --> db : Private/internal SQL
+repo --> verify : PR / main / release tag
+verify --> testdb : Integration + E2E
+verify --> release : Continue only on success
+secrets --> release : Authorized deployment
+renderdeploy --> api : Render API deploy + poll
+verceldeploy --> web : Vercel CLI deploy
+release --> api : HTTPS health/products smoke
+release --> web : HTTPS page/manifest smoke
+
 legend bottom
-  Deployment design; record actual server IP and hostnames during setup.
-  Only proxy has public application ports. DB remains internal.
-  Single Ubuntu server; no high-availability claim.
-  Payment mock is inside API. Compose is used locally and on server.
+  Production: Vercel (web) + Render (API and managed PostgreSQL).
+  Docker Compose is used only for local development and testing.
+  The web browser does not connect directly to PostgreSQL.
+  Provider database backups and migration policy depend on account configuration.
 endlegend
 @enduml

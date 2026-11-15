@@ -1,27 +1,36 @@
 @startuml
 skinparam style strictuml
 skinparam classAttributeIconSize 0
-skinparam nodesep 60
-skinparam ranksep 60
+skinparam nodesep 50
+skinparam ranksep 50
 
-title Class Diagram: BrewLite Domain Model
+title BrewLite domain model (implemented core + planned optional domain)
 
-package "Enums" {
-  enum OrderStatus {
-    PENDING
-    PAID
-    PREPARING
-    READY
-    COMPLETED
-    PAYMENT_FAILED
-    CANCELLED
-  }
+enum OrderStatus {
+  PENDING
+  PAID
+  PAYMENT_FAILED
+  CANCELLED
+}
 
-  enum PaymentStatus {
-    PENDING
-    SUCCESS
-    FAILED
-  }
+enum PaymentStatus {
+  PROCESSING
+  SUCCESS
+  FAILED
+  UNKNOWN
+}
+
+enum PaymentMethod {
+  CARD
+  WALLET
+}
+
+enum ReservationStatus {
+  HELD
+  PAYMENT_PENDING
+  CONSUMED
+  RELEASED
+  EXPIRED
 }
 
 class User {
@@ -34,51 +43,70 @@ class User {
 class Product {
   - id: UUID
   - name: String
-  - basePrice: Decimal
+  - basePrice: VND
   - stock: Int
 }
 
 class Order {
   - id: UUID
-  - totalAmount: Decimal
+  - totalAmount: VND
   - status: OrderStatus
   - idempotencyKey: String
+  - requestFingerprint: String
   - createdAt: DateTime
 }
 
 class OrderItem {
   - id: UUID
   - quantity: Int
-  - unitPrice: Decimal
-  - size: String
-  - toppings: String
+  - unitPrice: VND
+  - sizeSnapshot: JSON
+  - toppingsSnapshot: JSON
 }
 
 class Payment {
   - id: UUID
-  - method: String
-  - amount: Decimal
+  - orderId: UUID
+  - reservationId: UUID
+  - idempotencyKey: String
+  - method: PaymentMethod
   - status: PaymentStatus
+  - amount: VND
+  - gatewayReference: String?
 }
 
-class Promotion {
+class InventoryReservation {
+  - id: UUID
+  - status: ReservationStatus
+  - expiresAt: DateTime
+}
+
+class Promotion <<planned: FR-10>> {
   - id: UUID
   - code: String
   - discountPercent: Int
 }
 
-class LoyaltyTransaction {
+class LoyaltyTransaction <<planned: FR-10>> {
   - id: UUID
   - points: Int
   - type: String
 }
 
-' Giữ nguyên mối quan hệ tự động (--) để nó tự sắp xếp mạng nhện cho đẹp
-User "1" -- "0..*" Order : places >
-Order "1" *-- "1..*" OrderItem : contains >
-Product "1" -- "0..*" OrderItem : included in >
-Order "1" -- "0..1" Payment : pays >
-Order "0..*" -- "0..1" Promotion : applies >
-User "1" -- "0..*" LoyaltyTransaction : earns >
+User "1" -- "0..*" Order : places
+Order "1" *-- "1..*" OrderItem : contains
+Product "1" -- "0..*" OrderItem : referenced by
+Order "1" -- "0..*" Payment : payment attempts
+Order "1" *-- "1..*" InventoryReservation : reserves
+User "1" -- "0..*" LoyaltyTransaction : earns
+Promotion "0..1" -- "0..*" Order : applies to
 
+note right of Payment
+  Implemented by the PaymentAttempt
+  entity/table; each retry is persisted.
+end note
+note bottom of Promotion
+  Optional domain design only;
+  not implemented in the current MVP.
+end note
 @enduml
