@@ -179,7 +179,7 @@ Test API nằm trong `apps/api/src/**/*.spec.ts` và `apps/api/test/`; Playwrigh
 ## CI/CD
 
 - **CI** (`.github/workflows/ci.yml`): chạy khi mở/cập nhật PR: Install → Lint → Unit → PostgreSQL integration/API E2E → Build → Chromium browser E2E. [GitHub Actions run #9](https://github.com/nguyentriet2k69-lang/brew-lite2/actions/runs/43697256916) on `main` passed on 2026-11-15. Cần bật branch protection và required checks `API`, `Web` trong GitHub Settings.
-- **CD** (`.github/workflows/cd.yml`): sau verify, deploy đúng commit SHA lên Render, chờ live + API smoke, deploy web production qua Vercel CLI, rồi kiểm tra HTTPS và CORS preflight. [Run #3, attempt 7](https://github.com/nguyentriet2k69-lang/brew-lite2/actions/runs/43697256946) xác nhận Variables đã được nhận; Verify, Render deploy và API smoke pass, nhưng Vercel deploy fail vì workflow truyền Personal Account vào `--scope`. Job rollback chạy thành công. Workflow đã được sửa để bỏ `--scope` và validate `VERCEL_PROJECT_ID` là project ID `prj_...` trước khi deploy Render. Cần xác nhận GitHub Environment dùng đúng project ID của web chính `brew-lite2-9bg7` trước lần chạy CD tiếp theo.
+- **CD** (`.github/workflows/cd.yml`): sau verify, deploy đúng commit SHA lên Render, chờ live + API smoke, deploy web production qua Vercel CLI, rồi kiểm tra HTTPS và CORS preflight. [Run #4, attempt 4](https://github.com/nguyentriet2k69-lang/brew-lite2/actions/runs/43715225746) xác nhận project ID đã đúng; Verify, Render deploy và API smoke pass. Vercel deploy fail vì CLI chạy trong `apps/web` trong khi project đã đặt Root Directory là `apps/web` (đường dẫn bị ghép thành `apps/web/apps/web`). Rollback Render tiếp đó nhận HTTP 500. Kiểm tra tiếp theo trong phiên này, API health/products đều trả HTTP 200. Workflow hiện chạy Vercel CLI từ repository root và ghi rõ mã HTTP cùng thông tin lỗi của Render khi rollback không thành công; cần CD run mới để xác minh.
 - Production architecture đã thống nhất là Vercel + Render; Compose chỉ dùng local/testing. The two Vercel domains and Render API are currently reachable: web root/manifest/icons and API health/products returned HTTP 200, and CORS preflight passed for both web origins on 2026-11-15. Production checkout has not been exercised.
 
 ## Triển khai và Rollback
@@ -242,7 +242,7 @@ Deploy production tự động qua GitHub Actions sau khi cấu hình GitHub Env
 - [x] `docker compose up --build --wait` local; API/Web/DB healthy và HTTP smoke pass
 - [x] Migration/seed trên PostgreSQL local Compose + `/health`
 - [x] CD workflow code/configuration cho Vercel + Render
-- [ ] Automated production release chưa hoàn tất: CD run #3 attempt 7 deploy Render/API smoke pass, Vercel lỗi scope; rollback job pass. Workflow fix đã chuẩn bị nhưng cần CI/PR và xác nhận đúng Vercel project ID trước khi chạy lại.
+- [ ] Automated production release chưa hoàn tất: CD run #4 attempt 4 deploy Render/API smoke pass, Vercel lỗi root directory và Render rollback API trả HTTP 500. PR #10 đã qua CI; cần merge và CD run mới để xác minh deploy production.
 - [x] Frontend HTTPS, manifest và icons trả HTTP 200 trên cả hai Vercel domains
 - [x] Production API health/products trả HTTP 200; products có 9 items
 - [x] Production CORS preflight cho hai web origins
@@ -256,7 +256,7 @@ Deploy production tự động qua GitHub Actions sau khi cấu hình GitHub Env
 - [ ] Lịch sử Git rõ ràng + cấp quyền truy cập cho giảng viên
 - [x] PWA manifest/icons + service worker cache shell/menu for offline browsing (checkout still requires network)
 - [x] Manual viewport smoke ở 360/390/414 px; không tràn ngang
-- [x] Automated browser E2E wired into CI/CD workflows; GitHub CI run #9 passed. CD run #3 attempt 7 accepted configured Variables, but Vercel deployment failed on `--scope` and rollback ran; fix is pending verification.
+- [x] Automated browser E2E wired into CI/CD workflows; GitHub CI run #9 passed. CD run #4 attempt 4 accepted the correct Vercel project ID, but Vercel deployment failed because its configured root directory was applied twice; the Render rollback API returned HTTP 500. PR #10 CI passed; production CD verification is pending merge and rerun.
 - [x] Regenerated SVG previews for PlantUML sources
 ## Minh chứng (Evidence)
 

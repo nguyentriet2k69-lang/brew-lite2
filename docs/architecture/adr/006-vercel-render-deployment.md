@@ -20,7 +20,7 @@ The team confirmed the production target: Next.js web on Vercel, NestJS API and 
 
 - Provider configuration, managed database backup policy, production secrets and rollback depend on Vercel/Render account settings; they are not represented by local Compose.
 - Initial setup requires Render service ID/API key and Vercel account-or-team ID, project ID (`prj_...`) and token in the protected GitHub Environment. Do not pass a Personal Account ID as Vercel CLI `--scope`; the workflow uses the linked `.vercel/project.json` context instead.
-- The production API health/products, both Vercel web roots/manifests/icons and CORS preflight passed smoke tests on 2026-11-15. CD run #3 attempt 7 passed Verify, Render deploy and API smoke, but Vercel deploy failed because the workflow passed the Personal Account ID as `--scope`; the rollback job passed. The workflow now omits `--scope` and validates the project ID format. A successful automated production release remains pending confirmation of the correct `prj_...` for `brew-lite2-9bg7` and a new CD run.
+- The production API health/products, both Vercel web roots/manifests/icons and CORS preflight passed smoke tests on 2026-11-15. CD run #4 attempt 4 used the correct project ID and passed Verify, Render deploy and API smoke. Vercel deploy failed because the CLI ran from `apps/web` while the Vercel project Root Directory is `apps/web`, duplicating that path. The Render rollback API returned HTTP 500. PR #10 moves Vercel CLI execution to repository root and provides clearer rollback API diagnostics; CI run #12 passed API/Web. A successful automated production release remains pending merge and a new CD run.
 
 ## References
 
